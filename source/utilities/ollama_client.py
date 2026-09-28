@@ -1,11 +1,14 @@
+from pydantic import json_schema
+from pydantic.deprecated import copy_internals
 import requests
+import json
 
 class OllamaHTTPClient:
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
         self.base_url = base_url
         self.model = model
 
-    def chat(self, messages):
+    def complete_message(self, messages: str):
         try:
             response = requests.post(
                 self.base_url + "/api/chat",
@@ -15,10 +18,25 @@ class OllamaHTTPClient:
                     "stream": False,
                 },
             )
-            return response.json()
+            return response
         except Exception as e:
             raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
 
+    def stream_message(self, messages: str):
+        try:
+            response = requests.post(
+                self.base_url + "/api/chat",
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": True,
+                },
+                stream=True,
+            )
+            for line in response.iter_lines():
+               yield line
+        except Exception as e:
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
 
 class OllamaError(Exception):
     pass
