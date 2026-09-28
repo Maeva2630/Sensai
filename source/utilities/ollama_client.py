@@ -5,6 +5,21 @@ class OllamaHTTPClient:
         self.base_url = base_url
         self.model = model
 
+    def chat(self, messages):
+        try:
+            response = requests.post(
+                self.base_url + "/api/chat",
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": False,
+                },
+            )
+            return response.json()
+        except Exception as e:
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
+
+
 class OllamaError(Exception):
     pass
 
