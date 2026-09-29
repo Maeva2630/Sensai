@@ -1,0 +1,2 @@
+# HTTP client used to communicate directly with the local Ollama API.
+requests>=2.31,<3

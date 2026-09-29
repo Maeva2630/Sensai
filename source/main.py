@@ -22,9 +22,9 @@ def main():
 
     print("\n\n--- End of the models list test ---")
 
-    print("\n\n--- Embedding test ---")
+    # print("\n\n--- Embedding test ---")
     # print(client.get_embedding("Hello !"))
-    print("\n\n--- End of the embedding test ---")
+    # print("\n\n--- End of the embedding test ---")
 
 if __name__ == "__main__":
     main()
