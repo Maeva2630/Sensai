@@ -25,4 +25,4 @@ jobs:
         run: |
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           git remote add epitech git@github.com:EpitechPGE3-2026/G-AIA-500-MPL-5-1-sensai-3.git
-          git push epitech HEAD:main
+          git push --force epitech HEAD:main
