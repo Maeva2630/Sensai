@@ -1,46 +1,115 @@
 import requests
 import json
+from typing import List, Dict, Any, Generator, Optional
+
+
+class OllamaError(Exception):
+    """Base exception for all Ollama client errors."""
+    pass
+
+
+class OllamaConnectionError(OllamaError):
+    """Raised when unable to connect to the Ollama server."""
+    pass
+
+
+class OllamaModelNotFoundError(OllamaError):
+    """Raised when the requested model is not found on Ollama."""
+    pass
+
+
+class OllamaResponseError(OllamaError):
+    """Raised when Ollama returns an HTTP error status code."""
+
+    def __init__(self, message: str, status_code: Optional[int] = None, response_text: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_text = response_text
+
 
 class OllamaHTTPClient:
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
         self.model = model
 
-    def list_models(self):
+    def _handle_error_response(self, response: requests.Response) -> None:
+        """Parse error message from response and raise appropriate exception."""
+        error_msg = ""
         try:
-            response = requests.get(self.base_url + "/api/tags")
-            models = []
-            for model in response.json()["models"]:
-                models.append(model["name"])
-            return models
-        except Exception as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
+            data = response.json()
+            error_msg = data.get("error", response.text)
+        except Exception:
+            error_msg = response.text or f"HTTP {response.status_code}"
 
-    def get_embedding(self, text: str):
+        if response.status_code == 404 or "not found" in error_msg.lower():
+            raise OllamaModelNotFoundError(f"Model '{self.model}' not found on Ollama server: {error_msg}")
+        else:
+            raise OllamaResponseError(
+                f"Ollama API error ({response.status_code}): {error_msg}",
+                status_code=response.status_code,
+                response_text=response.text,
+            )
+
+    def list_models(self) -> List[str]:
+        """Fetch list of available models from Ollama."""
         try:
-            response = requests.post(self.base_url + "/api/embed", json={"model": self.model, "input": text})
-            return response.json()
+            response = requests.get(f"{self.base_url}/api/tags")
+            if response.status_code != 200:
+                self._handle_error_response(response)
+            
+            data = response.json()
+            models_list = data.get("models", [])
+            return [m["name"] for m in models_list if "name" in m]
+        except (OllamaModelNotFoundError, OllamaResponseError):
+            raise
+        except requests.exceptions.RequestException as e:
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
+            raise OllamaConnectionError(f"Unexpected error while listing models: {e}") from e
 
-    def complete_message(self, messages: str):
+    def get_embedding(self, text: str) -> Dict[str, Any]:
+        """Generate embedding vector for a given text input."""
         try:
             response = requests.post(
-                self.base_url + "/api/chat",
+                f"{self.base_url}/api/embed",
+                json={"model": self.model, "input": text}
+            )
+            if response.status_code != 200:
+                self._handle_error_response(response)
+            return response.json()
+        except (OllamaModelNotFoundError, OllamaResponseError):
+            raise
+        except requests.exceptions.RequestException as e:
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
+        except Exception as e:
+            raise OllamaConnectionError(f"Unexpected error while getting embedding: {e}") from e
+
+    def complete_message(self, messages: List[Dict[str, str]]) -> requests.Response:
+        """Send a non-streaming chat completion request."""
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/chat",
                 json={
                     "model": self.model,
                     "messages": messages,
                     "stream": False,
                 },
             )
+            if response.status_code != 200:
+                self._handle_error_response(response)
             return response
+        except (OllamaModelNotFoundError, OllamaResponseError):
+            raise
+        except requests.exceptions.RequestException as e:
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
+            raise OllamaConnectionError(f"Unexpected error during completion: {e}") from e
 
-    def stream_message(self, messages: str):
+    def stream_message(self, messages: List[Dict[str, str]]) -> Generator[bytes, None, None]:
+        """Send a streaming chat completion request and yield response chunks."""
         try:
             response = requests.post(
-                self.base_url + "/api/chat",
+                f"{self.base_url}/api/chat",
                 json={
                     "model": self.model,
                     "messages": messages,
@@ -48,16 +117,14 @@ class OllamaHTTPClient:
                 },
                 stream=True,
             )
+            if response.status_code != 200:
+                self._handle_error_response(response)
             for line in response.iter_lines():
-               yield line
+                yield line
+        except (OllamaModelNotFoundError, OllamaResponseError):
+            raise
+        except requests.exceptions.RequestException as e:
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}")
+            raise OllamaConnectionError(f"Unexpected error during streaming: {e}") from e
 
-class OllamaError(Exception):
-    pass
-
-class OllamaConnectionError(OllamaError):
-    pass
-
-class OllamaModelNotFoundError(OllamaError):
-    pass
