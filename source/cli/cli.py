@@ -1,6 +1,6 @@
 import sys
 import json
-from utilities.ollama_client import OllamaHTTPClient
+from utilities.ollama_client import OllamaHTTPClient, OllamaConnectionError, OllamaError
 
 
 def cli(model: str = "llama3.2"):
@@ -36,3 +36,13 @@ def cli(model: str = "llama3.2"):
         except KeyboardInterrupt:
             print("\nExiting.")
             sys.exit(0)
+
+        except OllamaConnectionError as e:
+            if messages and messages[-1].get("role") == "user":
+                messages.pop()
+            print(f"\nConnection Error: Unable to connect to Ollama server ({e}). Please ensure Ollama is running.")
+
+        except OllamaError as e:
+            if messages and messages[-1].get("role") == "user":
+                messages.pop()
+            print(f"\nWarning: {e}")
