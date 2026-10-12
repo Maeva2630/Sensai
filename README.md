@@ -39,4 +39,20 @@ From the root of the repository, run:
 python3 source/main.py
 ```
 
-The script runs streaming-chat and model-listing tests against the local Ollama API at `http://localhost:11434`. An embedding test is included in the code and can be enabled when needed.
+The application starts an interactive chat connected to the local Ollama API at `http://localhost:11434`.
+
+### Ingest a document for RAG
+
+While the application is running, use the following command to validate and extract a local text or Markdown document:
+
+```text
+/ingest path/to/document.md
+```
+
+The command currently supports UTF-8 encoded `.txt` and `.md` files. It validates the path, file type, encoding, and content before preparing the document for the upcoming chunking and indexing stages. Enter `exit` or `quit` to leave the application.
+
+### Run tests
+
+```bash
+python3 -m unittest discover -s tests
+```
