@@ -3,6 +3,8 @@ from unittest.mock import patch, MagicMock
 import io
 import sys
 import os
+import tempfile
+from pathlib import Path
 
 # Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
@@ -14,6 +16,7 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
 )
+from rag.ingestion import DocumentIngestor
 
 class TestCLIExceptionHandling(unittest.TestCase):
     """Unit tests for exception handling and flow control in CLI loop."""
@@ -99,6 +102,34 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertIn("Assistant: Starting response...", output)
         self.assertIn("Connection Error: Unable to connect to Ollama server", output)
         self.assertIn("Connection lost mid-stream", output)
+
+    @patch("builtins.input", side_effect=["/ingest", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_without_path_displays_usage(self, mock_client_cls, mock_input):
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        self.assertIn("Usage: /ingest <path-to-.txt-or-.md-file>", captured_output.getvalue())
+        mock_client_cls.return_value.stream_message.assert_not_called()
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_reports_success_and_duplicate(self, mock_client_cls):
+        with tempfile.TemporaryDirectory() as directory:
+            document_path = Path(directory) / "knowledge.txt"
+            document_path.write_text("Knowledge for the assistant", encoding="utf-8")
+            inputs = [f"/ingest {document_path}", f"/ingest {document_path}", "exit"]
+
+            captured_output = io.StringIO()
+            with patch("builtins.input", side_effect=inputs), patch("sys.stdout", captured_output):
+                cli(ingestor=DocumentIngestor())
+
+        output = captured_output.getvalue()
+        self.assertIn("Document ingested: knowledge.txt", output)
+        self.assertIn("Ready for chunking and indexing.", output)
+        self.assertIn("Document already ingested: knowledge.txt", output)
+        mock_client_cls.return_value.stream_message.assert_not_called()
 
 
 if __name__ == "__main__":
