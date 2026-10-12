@@ -51,6 +51,10 @@ While the application is running, use the following command to validate and extr
 
 The command currently supports UTF-8 encoded `.txt` and `.md` files. It validates the path, file type, encoding, and content before preparing the document for the upcoming chunking and indexing stages. Enter `exit` or `quit` to leave the application.
 
+### Chunking configuration
+
+The RAG chunking module splits normalized document text at paragraph and sentence boundaries. Its default configuration is an 800-character maximum chunk size with a 120-character overlap. These values are defined in `source/rag/chunking.py` and can be adjusted by creating a `ChunkingConfig` instance.
+
 ### Run tests
 
 ```bash
