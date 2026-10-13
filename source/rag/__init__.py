@@ -23,6 +23,7 @@ from .embeddings import (
     EmbeddingResponseError,
     QueryEmbedding,
 )
+from .storage import DEFAULT_TOP_K, InvalidVectorError, LocalVectorStore, SearchResult, VectorStoreError
 
 __all__ = [
     "DocumentDecodingError",
@@ -46,4 +47,9 @@ __all__ = [
     "EmbeddingModelError",
     "EmbeddingResponseError",
     "QueryEmbedding",
+    "DEFAULT_TOP_K",
+    "InvalidVectorError",
+    "LocalVectorStore",
+    "SearchResult",
+    "VectorStoreError",
 ]

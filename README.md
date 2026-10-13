@@ -65,6 +65,10 @@ ollama pull nomic-embed-text
 
 The chat model and the embedding model are separate: a dedicated embedding model produces vectors intended for semantic search. The embedding model can be changed in Python with `EmbeddingConfig(model="your-model-name")`.
 
+### Local RAG storage and search
+
+Embeddings are persisted locally in the SQLite database `data/sensai_rag.sqlite3`. This database is created automatically and is excluded from Git because it contains local, generated knowledge-base data. The `LocalVectorStore` retrieves the most semantically similar chunks with cosine similarity. By default, it returns the top three results; this can be adjusted with the `top_k` argument.
+
 ### Run tests
 
 ```bash
