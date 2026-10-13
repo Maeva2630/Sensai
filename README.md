@@ -55,6 +55,16 @@ The command currently supports UTF-8 encoded `.txt` and `.md` files. It validate
 
 The RAG chunking module splits normalized document text at paragraph and sentence boundaries. Its default configuration is an 800-character maximum chunk size with a 120-character overlap. These values are defined in `source/rag/chunking.py` and can be adjusted by creating a `ChunkingConfig` instance.
 
+### RAG embedding model
+
+The RAG embedding module uses the Ollama model `nomic-embed-text` by default. Install it with:
+
+```bash
+ollama pull nomic-embed-text
+```
+
+The chat model and the embedding model are separate: a dedicated embedding model produces vectors intended for semantic search. The embedding model can be changed in Python with `EmbeddingConfig(model="your-model-name")`.
+
 ### Run tests
 
 ```bash
