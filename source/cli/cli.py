@@ -2,16 +2,20 @@ import sys
 import json
 from utilities.ollama_client import OllamaHTTPClient, OllamaConnectionError, OllamaError
 
+from memory.session_manager import SessionManager
 
 def cli(model: str = "llama3.2"):
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
 
     client = OllamaHTTPClient(model=model)
+    session = SessionManager()
 
     while True:
         try:
             user_input = input("You: ")
             if user_input.lower() in ['exit', 'quit']:
+                saved_path = session.save()
+                print(f"Session saved at {saved_path}")
                 break
             if not user_input.strip():
                 continue
@@ -33,8 +37,14 @@ def cli(model: str = "llama3.2"):
             print() # Print '\n'
             messages.append({"role": "assistant", "content": full_response})
 
-        except KeyboardInterrupt:
-            print("\nExiting.")
+            session.add_message("user", user_input)
+            session.add_message("assistant", full_response)
+
+
+        except (KeyboardInterrupt, EOFError):
+            saved_path = session.save()
+            print(f"\nSession saved at {saved_path}")
+            print("Exiting.")
             sys.exit(0)
 
         except OllamaConnectionError as e:
