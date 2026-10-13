@@ -14,9 +14,11 @@ def cli(model: str = "llama3.2"):
         try:
             user_input = input("You: ")
             if user_input.lower() in ['exit', 'quit']:
-                saved_path = session.save()
-                print(f"Session saved at {saved_path}")
+                session.save()
                 break
+            if user_input.lower() == '/save':
+                session.save()
+                continue
             if not user_input.strip():
                 continue
 
@@ -42,8 +44,7 @@ def cli(model: str = "llama3.2"):
 
 
         except (KeyboardInterrupt, EOFError):
-            saved_path = session.save()
-            print(f"\nSession saved at {saved_path}")
+            session.save()
             print("Exiting.")
             sys.exit(0)
 
