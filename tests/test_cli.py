@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch, MagicMock
 import io
@@ -8,7 +9,11 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
-from cli.cli import cli
+from cli.cli import cli, MAX_TOOL_ITERATIONS
+# pyrefly: ignore [missing-import]
+from tools.base import Tool
+# pyrefly: ignore [missing-import]
+from tools.registry import ToolRegistry
 # pyrefly: ignore [missing-import]
 from utilities.ollama_client import (
     OllamaConnectionError,
@@ -99,6 +104,152 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertIn("Assistant: Starting response...", output)
         self.assertIn("Connection Error: Unable to connect to Ollama server", output)
         self.assertIn("Connection lost mid-stream", output)
+
+
+class AddTool(Tool):
+    name = "add"
+    description = "Add two integers."
+    parameters = {
+        "type": "object",
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"],
+    }
+
+    def execute(self, arguments):
+        return arguments["a"] + arguments["b"]
+
+
+def tool_call_chunk(name, arguments):
+    return json.dumps({"message": {"role": "assistant", "content": "", "tool_calls": [
+        {"function": {"name": name, "arguments": arguments}}
+    ]}}).encode()
+
+
+def text_chunk(text):
+    return json.dumps({"message": {"content": text}}).encode()
+
+
+class TestCLIToolCalling(unittest.TestCase):
+    """Unit tests for the tool-calling loop in the CLI."""
+
+    def setUp(self):
+        self.registry = ToolRegistry()
+        self.registry.register(AddTool())
+        self.histories = []
+
+    def mock_client(self, mock_client_cls, responses):
+        """Make stream_message return `responses` in order, recording the history it receives."""
+        client = MagicMock()
+        mock_client_cls.return_value = client
+        remaining = list(responses)
+
+        def stream_message(messages, tools=None):
+            self.histories.append([dict(m) for m in messages])
+            return remaining.pop(0)
+
+        client.stream_message.side_effect = stream_message
+        return client
+
+    def run_cli(self, registry=None):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            cli(registry=registry or self.registry)
+        return captured_output.getvalue()
+
+    @patch("builtins.input", side_effect=["What is 17 + 25?", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_tool_call_result_is_used_in_final_answer(self, mock_client_cls, mock_input):
+        client = self.mock_client(mock_client_cls, [
+            [tool_call_chunk("add", {"a": 17, "b": 25})],
+            [text_chunk("It is 42.")],
+        ])
+
+        output = self.run_cli()
+
+        self.assertIn('[tool] add({"a": 17, "b": 25})', output)
+        self.assertIn("[tool] result: 42", output)
+        self.assertIn("Assistant: It is 42.", output)
+        # The second request carries the assistant tool call and the tool result
+        second_request = self.histories[1]
+        self.assertEqual(second_request[-2]["role"], "assistant")
+        self.assertIn("tool_calls", second_request[-2])
+        self.assertEqual(second_request[-1], {"role": "tool", "tool_name": "add", "content": "42"})
+        # Tools are offered to the model on every request
+        for call in client.stream_message.call_args_list:
+            self.assertEqual(call.kwargs["tools"], self.registry.to_ollama_tools())
+
+    @patch("builtins.input", side_effect=["Hello", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_no_tool_call_answers_normally(self, mock_client_cls, mock_input):
+        client = self.mock_client(mock_client_cls, [[text_chunk("Hi"), text_chunk(" there!")]])
+
+        output = self.run_cli()
+
+        self.assertIn("Assistant: Hi there!", output)
+        self.assertNotIn("[tool]", output)
+        self.assertEqual(client.stream_message.call_count, 1)
+
+    @patch("builtins.input", side_effect=["Add things", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_chained_tool_calls(self, mock_client_cls, mock_input):
+        client = self.mock_client(mock_client_cls, [
+            [tool_call_chunk("add", {"a": 1, "b": 2})],
+            [tool_call_chunk("add", {"a": 3, "b": 4})],
+            [text_chunk("Done.")],
+        ])
+
+        output = self.run_cli()
+
+        self.assertIn("[tool] result: 3", output)
+        self.assertIn("[tool] result: 7", output)
+        self.assertIn("Assistant: Done.", output)
+        self.assertEqual(client.stream_message.call_count, 3)
+
+    @patch("builtins.input", side_effect=["Loop forever", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_iteration_limit_stops_the_loop(self, mock_client_cls, mock_input):
+        client = self.mock_client(mock_client_cls, [
+            [tool_call_chunk("add", {"a": 1, "b": 1})] for _ in range(MAX_TOOL_ITERATIONS)
+        ])
+
+        output = self.run_cli()
+
+        self.assertEqual(client.stream_message.call_count, MAX_TOOL_ITERATIONS)
+        self.assertIn(f"stopped after {MAX_TOOL_ITERATIONS} tool calls", output)
+
+    @patch("builtins.input", side_effect=["Use a tool", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_unknown_tool_error_is_sent_back_to_the_model(self, mock_client_cls, mock_input):
+        self.mock_client(mock_client_cls, [
+            [tool_call_chunk("missing", {})],
+            [text_chunk("Sorry, I cannot do that.")],
+        ])
+
+        output = self.run_cli()
+
+        self.assertIn("[tool] error: Unknown tool 'missing'", output)
+        self.assertIn("Unknown tool 'missing'", self.histories[1][-1]["content"])
+        self.assertIn("Assistant: Sorry, I cannot do that.", output)
+
+    @patch("builtins.input", side_effect=["Add", "Hello", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_failed_turn_rolls_back_the_whole_turn(self, mock_client_cls, mock_input):
+        def failing_second_request():
+            raise OllamaConnectionError("Connection lost")
+            yield  # pragma: no cover
+
+        self.mock_client(mock_client_cls, [
+            [tool_call_chunk("add", {"a": 1, "b": 2})],
+            failing_second_request(),
+            [text_chunk("Hi")],
+        ])
+
+        output = self.run_cli()
+
+        self.assertIn("Connection Error", output)
+        # The next turn starts from a clean history: system + the new user message only
+        self.assertEqual([m["role"] for m in self.histories[2]], ["system", "user"])
+        self.assertEqual(self.histories[2][-1]["content"], "Hello")
 
 
 if __name__ == "__main__":

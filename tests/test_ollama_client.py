@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch, MagicMock
 import requests
@@ -14,6 +15,8 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
     OllamaResponseError,
+    build_tool_message,
+    parse_tool_calls,
 )
 
 
@@ -175,6 +178,91 @@ class TestOllamaHTTPClient(unittest.TestCase):
 
         with self.assertRaises(OllamaModelNotFoundError):
             list(self.client.stream_message([{"role": "user", "content": "Hi"}]))
+
+    TOOLS = [{
+        "type": "function",
+        "function": {
+            "name": "get_time",
+            "description": "Get the current time",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }]
+
+    @patch("requests.post")
+    def test_complete_message_with_tools(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        messages = [{"role": "user", "content": "What time is it?"}]
+        self.client.complete_message(messages, tools=self.TOOLS)
+
+        mock_post.assert_called_once_with(
+            "http://localhost:11434/api/chat",
+            json={"model": "llama3.2", "messages": messages, "stream": False, "tools": self.TOOLS},
+        )
+
+    @patch("requests.post")
+    def test_stream_message_with_tools(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.iter_lines.return_value = []
+        mock_post.return_value = mock_response
+
+        messages = [{"role": "user", "content": "What time is it?"}]
+        list(self.client.stream_message(messages, tools=self.TOOLS))
+
+        mock_post.assert_called_once_with(
+            "http://localhost:11434/api/chat",
+            json={"model": "llama3.2", "messages": messages, "stream": True, "tools": self.TOOLS},
+            stream=True,
+        )
+
+    @patch("requests.post")
+    def test_empty_tools_are_omitted_from_payload(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        self.client.complete_message([], tools=[])
+
+        self.assertNotIn("tools", mock_post.call_args.kwargs["json"])
+
+    def test_parse_tool_calls_from_message(self):
+        message = {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "add", "arguments": {"a": 1, "b": 2}}},
+            {"function": {"name": "get_time", "arguments": {}}},
+        ]}
+        self.assertEqual(parse_tool_calls(message), [
+            {"name": "add", "arguments": {"a": 1, "b": 2}},
+            {"name": "get_time", "arguments": {}},
+        ])
+
+    def test_parse_tool_calls_from_streamed_chunk(self):
+        chunk = json.loads(
+            b'{"message": {"role": "assistant", "content": "", '
+            b'"tool_calls": [{"function": {"name": "add", "arguments": {"a": 1}}}]}, "done": false}'
+        )
+        self.assertEqual(parse_tool_calls(chunk["message"]), [{"name": "add", "arguments": {"a": 1}}])
+
+    def test_parse_tool_calls_decodes_string_arguments(self):
+        message = {"tool_calls": [{"function": {"name": "add", "arguments": '{"a": 1}'}}]}
+        self.assertEqual(parse_tool_calls(message), [{"name": "add", "arguments": {"a": 1}}])
+
+    def test_parse_tool_calls_invalid_string_arguments(self):
+        message = {"tool_calls": [{"function": {"name": "add", "arguments": "not json"}}]}
+        self.assertEqual(parse_tool_calls(message), [{"name": "add", "arguments": {}}])
+
+    def test_parse_tool_calls_without_tool_calls(self):
+        self.assertEqual(parse_tool_calls({"role": "assistant", "content": "Hi"}), [])
+        self.assertEqual(parse_tool_calls({}), [])
+        self.assertEqual(parse_tool_calls(None), [])
+
+    def test_build_tool_message(self):
+        self.assertEqual(
+            build_tool_message("get_time", "12:00"),
+            {"role": "tool", "tool_name": "get_time", "content": "12:00"},
+        )
 
 
 def run_integration_test():

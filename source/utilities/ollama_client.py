@@ -27,6 +27,30 @@ class OllamaResponseError(OllamaError):
         self.response_text = response_text
 
 
+def build_tool_message(tool_name: str, content: str) -> Dict[str, str]:
+    """Build a `tool` role message carrying a tool result back to the model."""
+    return {"role": "tool", "tool_name": tool_name, "content": content}
+
+
+def parse_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract tool calls from a chat response message (full or streamed chunk).
+
+    Returns a list of {"name": str, "arguments": dict}. Arguments sent as a JSON
+    string are decoded; undecodable arguments become an empty dict.
+    """
+    calls = []
+    for call in (message or {}).get("tool_calls") or []:
+        function = call.get("function", {})
+        arguments = function.get("arguments", {})
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {}
+        calls.append({"name": function.get("name", ""), "arguments": arguments or {}})
+    return calls
+
+
 class OllamaHTTPClient:
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
         self.base_url = base_url.rstrip("/")
@@ -84,16 +108,20 @@ class OllamaHTTPClient:
         except Exception as e:
             raise OllamaConnectionError(f"Unexpected error while getting embedding: {e}") from e
 
-    def complete_message(self, messages: List[Dict[str, str]]) -> requests.Response:
-        """Send a non-streaming chat completion request."""
+    def _chat_payload(self, messages: List[Dict[str, Any]], stream: bool,
+                      tools: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+        payload = {"model": self.model, "messages": messages, "stream": stream}
+        if tools:
+            payload["tools"] = tools
+        return payload
+
+    def complete_message(self, messages: List[Dict[str, Any]],
+                         tools: Optional[List[Dict[str, Any]]] = None) -> requests.Response:
+        """Send a non-streaming chat completion request, optionally offering tools."""
         try:
             response = requests.post(
                 f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                },
+                json=self._chat_payload(messages, False, tools),
             )
             if response.status_code != 200:
                 self._handle_error_response(response)
@@ -105,16 +133,13 @@ class OllamaHTTPClient:
         except Exception as e:
             raise OllamaConnectionError(f"Unexpected error during completion: {e}") from e
 
-    def stream_message(self, messages: List[Dict[str, str]]) -> Generator[bytes, None, None]:
+    def stream_message(self, messages: List[Dict[str, Any]],
+                       tools: Optional[List[Dict[str, Any]]] = None) -> Generator[bytes, None, None]:
         """Send a streaming chat completion request and yield response chunks."""
         try:
             response = requests.post(
                 f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                },
+                json=self._chat_payload(messages, True, tools),
                 stream=True,
             )
             if response.status_code != 200:
