@@ -1,29 +1,52 @@
 import sys
 import json
 from utilities.ollama_client import OllamaHTTPClient, OllamaConnectionError, OllamaError
-
 from memory.session_manager import SessionManager
 
-def cli(model: str = "llama3.2"):
-    messages = [{"role": "system", "content": "You are a helpful assistant."}]
 
+def cli(model: str = "llama3.2", session_id: str = None):
+
+    session = SessionManager(session_id=session_id)
+    messages = session.load(session_id) or [{"role": "system", "content": "You are a helpful assistant."}]
     client = OllamaHTTPClient(model=model)
-    session = SessionManager()
+
+    def cmd_exit(_args):
+        session.save()
+        sys.exit(0)
+
+    def cmd_save(_args):
+        session.save()
+
+    def cmd_load(args):
+        if not args:
+            print("Usage: /load <session_id>")
+            return
+        session.load(args[0])
+        print(f"Session {args[0]} loaded.")
+
+    COMMANDS = {
+        "/save": cmd_save,
+        "/load": cmd_load,
+        "exit":  cmd_exit,
+        "quit":  cmd_exit,
+    }
 
     while True:
         try:
             user_input = input("You: ")
-            if user_input.lower() in ['exit', 'quit']:
-                session.save()
-                break
-            if user_input.lower() == '/save':
-                session.save()
-                continue
+
             if not user_input.strip():
                 continue
 
+            parts = user_input.strip().split()
+            command = parts[0].lower()
+            args = parts[1:]
+
+            if command in COMMANDS:
+                COMMANDS[command](args)
+                continue
+
             messages.append({"role": "user", "content": user_input})
-            
             response = client.stream_message(messages)
 
             full_response = ""
@@ -36,12 +59,10 @@ def cli(model: str = "llama3.2"):
                     print(content, end="", flush=True)
                     full_response += content
 
-            print() # Print '\n'
+            print()
             messages.append({"role": "assistant", "content": full_response})
-
             session.add_message("user", user_input)
             session.add_message("assistant", full_response)
-
 
         except (KeyboardInterrupt, EOFError):
             session.save()
