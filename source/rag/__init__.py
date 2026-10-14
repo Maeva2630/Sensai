@@ -24,6 +24,14 @@ from .embeddings import (
     QueryEmbedding,
 )
 from .storage import DEFAULT_TOP_K, InvalidVectorError, LocalVectorStore, SearchResult, VectorStoreError
+from .context import (
+    DEFAULT_CONTEXT_CHARACTER_BUDGET,
+    IndexingResult,
+    PreparedContext,
+    RAGContextConfig,
+    RAGContextProvider,
+    RAGIndexer,
+)
 
 __all__ = [
     "DocumentDecodingError",
@@ -52,4 +60,10 @@ __all__ = [
     "LocalVectorStore",
     "SearchResult",
     "VectorStoreError",
+    "DEFAULT_CONTEXT_CHARACTER_BUDGET",
+    "IndexingResult",
+    "PreparedContext",
+    "RAGContextConfig",
+    "RAGContextProvider",
+    "RAGIndexer",
 ]

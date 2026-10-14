@@ -43,13 +43,23 @@ The application starts an interactive chat connected to the local Ollama API at 
 
 ### Ingest a document for RAG
 
-While the application is running, use the following command to validate and extract a local text or Markdown document:
+While the application is running, use the following command to validate, chunk, embed, and index a local text or Markdown document:
 
 ```text
 /ingest path/to/document.md
 ```
 
-The command currently supports UTF-8 encoded `.txt` and `.md` files. It validates the path, file type, encoding, and content before preparing the document for the upcoming chunking and indexing stages. Enter `exit` or `quit` to leave the application.
+The command currently supports UTF-8 encoded `.txt` and `.md` files. It validates the path, file type, encoding, and content, then stores its chunks and embeddings in the local RAG database. Enter `exit` or `quit` to leave the application.
+
+### Use documents in the chat
+
+Enable document-grounded answers after indexing at least one document:
+
+```text
+/rag on
+```
+
+While RAG mode is enabled, SensAI retrieves the most relevant excerpts before every question, sends them as bounded context to Ollama, and cites the source filename in its answer. If the information cannot be found in the indexed documents, it must say so. Use `/rag off` to restore the normal chatbot behavior, or `/rag status` to display the current mode.
 
 ### Chunking configuration
 
@@ -64,6 +74,10 @@ ollama pull nomic-embed-text
 ```
 
 The chat model and the embedding model are separate: a dedicated embedding model produces vectors intended for semantic search. The embedding model can be changed in Python with `EmbeddingConfig(model="your-model-name")`.
+
+### RAG context configuration
+
+By default, RAG retrieves the top three matching chunks and keeps the complete context message under 4,000 characters. Adjust these settings through `RAGContextConfig(top_k=..., max_context_characters=...)` when creating a `RAGContextProvider`.
 
 ### Local RAG storage and search
 

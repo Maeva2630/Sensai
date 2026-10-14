@@ -2,7 +2,10 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from rag.ingestion import DocumentIngestionError, DocumentIngestor, IngestedDocument
+from rag.context import RAGContextProvider, RAGIndexer
+from rag.embeddings import EmbeddingError
+from rag.ingestion import DocumentIngestionError, DocumentIngestor
+from rag.storage import VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -28,10 +31,7 @@ def stream_response(
     messages: List[Dict[str, Any]],
     tools: List[Dict[str, Any]],
 ) -> Tuple[str, List[Dict[str, Any]]]:
-    """Stream one model response to the terminal.
-
-    Returns the text printed and the raw tool calls requested by the model.
-    """
+    """Stream one model response and return its text and requested tool calls."""
     full_response = ""
     raw_tool_calls: List[Dict[str, Any]] = []
     printed_prefix = False
@@ -68,10 +68,23 @@ def run_tool_calls(
         messages.append(build_tool_message(call["name"], result.content))
 
 
+def _request_messages(
+    messages: List[Dict[str, Any]],
+    rag_system_message: str | None,
+) -> List[Dict[str, Any]]:
+    """Inject temporary RAG context after the base system message when enabled."""
+    if rag_system_message is None:
+        return messages
+    return [messages[0], {"role": "system", "content": rag_system_message}, *messages[1:]]
+
+
 def cli(
     model: str = "llama3.2",
     registry: Optional[ToolRegistry] = None,
     ingestor: DocumentIngestor | None = None,
+    rag_enabled: bool = False,
+    rag_indexer: RAGIndexer | None = None,
+    rag_context_provider: RAGContextProvider | None = None,
 ) -> None:
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
 
@@ -79,7 +92,11 @@ def cli(
     registry = registry if registry is not None else default_registry()
     tools = registry.to_ollama_tools()
     ingestor = ingestor or DocumentIngestor()
-    ingested_documents: dict[str, IngestedDocument] = {}
+    rag_indexer = rag_indexer or RAGIndexer(ingestor=ingestor)
+    rag_context_provider = rag_context_provider or RAGContextProvider(
+        embedding_generator=rag_indexer.embedding_generator,
+        vector_store=rag_indexer.vector_store,
+    )
 
     while True:
         try:
@@ -89,15 +106,29 @@ def cli(
             if not user_input.strip():
                 continue
 
+            if user_input.startswith("/rag"):
+                rag_enabled = _handle_rag_command(user_input, rag_enabled)
+                continue
+
             if user_input.startswith("/ingest"):
-                _handle_ingest_command(user_input, ingestor, ingested_documents)
+                _handle_ingest_command(user_input, rag_indexer)
                 continue
 
             turn_start = len(messages)
             messages.append({"role": "user", "content": user_input})
+            rag_system_message = None
+            if rag_enabled:
+                try:
+                    prepared_context = rag_context_provider.prepare(user_input)
+                    rag_system_message = prepared_context.system_message
+                except (EmbeddingError, VectorStoreError) as error:
+                    del messages[turn_start:]
+                    print(f"\nRAG Error: {error}")
+                    continue
 
             for _ in range(MAX_TOOL_ITERATIONS):
-                full_response, raw_tool_calls = stream_response(client, messages, tools)
+                request_messages = _request_messages(messages, rag_system_message)
+                full_response, raw_tool_calls = stream_response(client, request_messages, tools)
 
                 assistant_message: Dict[str, Any] = {"role": "assistant", "content": full_response}
                 if raw_tool_calls:
@@ -126,30 +157,37 @@ def cli(
             print(f"\nWarning: {error}")
 
 
-def _handle_ingest_command(
-    user_input: str,
-    ingestor: DocumentIngestor,
-    ingested_documents: dict[str, IngestedDocument],
-) -> None:
-    """Ingest a local document without sending the command to the chat model."""
+def _handle_ingest_command(user_input: str, rag_indexer: RAGIndexer) -> None:
+    """Index a local document without sending the command to the chat model."""
     command, separator, document_path = user_input.partition(" ")
     if command != "/ingest" or not separator or not document_path.strip():
         print("Usage: /ingest <path-to-.txt-or-.md-file>")
         return
 
     try:
-        document = ingestor.ingest(document_path.strip())
-    except DocumentIngestionError as error:
-        print(f"Document ingestion failed: {error}")
+        result = rag_indexer.index_document(document_path.strip())
+    except (DocumentIngestionError, EmbeddingError, VectorStoreError) as error:
+        print(f"Document indexing failed: {error}")
         return
 
-    if document.document_id in ingested_documents:
-        print(f"Document already ingested: {document.source_filename}")
-        return
-
-    ingested_documents[document.document_id] = document
     print(
-        f"Document ingested: {document.source_filename} "
-        f"({document.character_count} characters, id: {document.document_id[:12]}...). "
-        "Ready for chunking and indexing."
+        f"Document indexed: {result.document.source_filename} "
+        f"({result.chunk_count} chunks; {result.inserted_chunk_count} new chunks stored)."
     )
+
+
+def _handle_rag_command(user_input: str, rag_enabled: bool) -> bool:
+    """Enable, disable, or report the status of document-grounded chat mode."""
+    command, _, option = user_input.partition(" ")
+    normalized_option = option.strip().lower()
+    if command != "/rag" or normalized_option not in {"on", "off", "status"}:
+        print("Usage: /rag <on|off|status>")
+        return rag_enabled
+    if normalized_option == "on":
+        print("RAG mode enabled. Responses will use indexed documents only.")
+        return True
+    if normalized_option == "off":
+        print("RAG mode disabled. The normal chatbot behavior is restored.")
+        return False
+    print(f"RAG mode is {'enabled' if rag_enabled else 'disabled'}.")
+    return rag_enabled
