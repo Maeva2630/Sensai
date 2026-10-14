@@ -63,6 +63,14 @@ class TestLocalVectorStore(unittest.TestCase):
 
         self.assertEqual(results, [])
 
+    def test_zero_vector_has_a_safe_zero_similarity_score(self):
+        self.store.store_chunks([embedded_chunk("zero", (0.0, 0.0), "No direction")])
+
+        results = self.store.search(QueryEmbedding("Question", (1.0, 0.0), "test-embed"))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].similarity_score, 0.0)
+
     def test_duplicate_indexing_does_not_create_duplicate_rows(self):
         record = embedded_chunk("chunk-1", (1.0, 0.0))
 

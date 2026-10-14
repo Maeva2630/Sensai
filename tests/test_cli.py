@@ -4,8 +4,6 @@ from unittest.mock import patch, MagicMock
 import io
 import sys
 import os
-import tempfile
-from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
@@ -20,9 +18,9 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
 )
-from rag.ingestion import DocumentIngestor
 from rag.context import IndexingResult, PreparedContext
 from rag.ingestion import IngestedDocument
+from rag.storage import SearchResult
 
 class TestCLIExceptionHandling(unittest.TestCase):
     """Unit tests for exception handling and flow control in CLI loop."""
@@ -299,6 +297,24 @@ class TestCLIRAGIntegration(unittest.TestCase):
         sent_messages = mock_client.stream_message.call_args.args[0]
         self.assertEqual(sent_messages[1]["content"], "RAG source context")
         context_provider.prepare.assert_called_once_with("Question")
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_displays_sources_used_for_a_rag_answer(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Grounded answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext(
+            "RAG source context",
+            [SearchResult("doc-1", "chunk-1", "guide.md", 0, "Evidence", 0.95)],
+        )
+        captured_output = io.StringIO()
+
+        with patch("builtins.input", side_effect=["Question", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        self.assertIn("Assistant: Grounded answer", captured_output.getvalue())
+        self.assertIn("Sources: guide.md (chunks: chunk-1)", captured_output.getvalue())
 
 if __name__ == "__main__":
     unittest.main()

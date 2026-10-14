@@ -1,19 +1,34 @@
 import os
 import sys
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
-from rag.context import RAGContextConfig, RAGContextProvider, RAGIndexer
+from rag.context import RAGContextConfig, RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import QueryEmbedding
 from rag.ingestion import IngestedDocument
 from rag.storage import SearchResult
 
 
 class TestRAGContextProvider(unittest.TestCase):
+    def test_source_attribution_groups_chunks_by_source(self):
+        attribution = format_source_attribution(
+            [
+                SearchResult("doc-1", "chunk-1", "guide.md", 0, "First excerpt", 0.95),
+                SearchResult("doc-1", "chunk-2", "guide.md", 1, "Second excerpt", 0.90),
+                SearchResult("doc-2", "chunk-3", "notes.md", 0, "Third excerpt", 0.80),
+            ]
+        )
+
+        self.assertEqual(
+            attribution,
+            "Sources: guide.md (chunks: chunk-1, chunk-2); notes.md (chunks: chunk-3)",
+        )
+
+    def test_source_attribution_is_empty_without_retrieved_chunks(self):
+        self.assertEqual(format_source_attribution([]), "")
+
     def test_includes_retrieved_sources_and_respects_character_budget(self):
         embedding_generator = MagicMock()
         embedding_generator.embed_query.return_value = QueryEmbedding("Question", (1.0, 0.0), "embed-model")
