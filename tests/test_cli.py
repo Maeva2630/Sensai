@@ -7,7 +7,6 @@ import os
 import tempfile
 from pathlib import Path
 
-# Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
@@ -22,6 +21,8 @@ from utilities.ollama_client import (
     OllamaModelNotFoundError,
 )
 from rag.ingestion import DocumentIngestor
+from rag.context import IndexingResult, PreparedContext
+from rag.ingestion import IngestedDocument
 
 class TestCLIExceptionHandling(unittest.TestCase):
     """Unit tests for exception handling and flow control in CLI loop."""
@@ -120,20 +121,20 @@ class TestCLIExceptionHandling(unittest.TestCase):
         mock_client_cls.return_value.stream_message.assert_not_called()
 
     @patch("cli.cli.OllamaHTTPClient")
-    def test_cli_ingest_command_reports_success_and_duplicate(self, mock_client_cls):
-        with tempfile.TemporaryDirectory() as directory:
-            document_path = Path(directory) / "knowledge.txt"
-            document_path.write_text("Knowledge for the assistant", encoding="utf-8")
-            inputs = [f"/ingest {document_path}", f"/ingest {document_path}", "exit"]
-
-            captured_output = io.StringIO()
-            with patch("builtins.input", side_effect=inputs), patch("sys.stdout", captured_output):
-                cli(ingestor=DocumentIngestor())
+    def test_cli_ingest_command_reports_indexing_result(self, mock_client_cls):
+        document = IngestedDocument("document-id", "knowledge.txt", "/tmp/knowledge.txt", "Knowledge", 9)
+        indexer = MagicMock()
+        indexer.index_document.side_effect = [
+            IndexingResult(document, chunk_count=2, inserted_chunk_count=2),
+            IndexingResult(document, chunk_count=2, inserted_chunk_count=0),
+        ]
+        captured_output = io.StringIO()
+        with patch("builtins.input", side_effect=["/ingest knowledge.txt", "/ingest knowledge.txt", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_indexer=indexer)
 
         output = captured_output.getvalue()
-        self.assertIn("Document ingested: knowledge.txt", output)
-        self.assertIn("Ready for chunking and indexing.", output)
-        self.assertIn("Document already ingested: knowledge.txt", output)
+        self.assertIn("Document indexed: knowledge.txt (2 chunks; 2 new chunks stored).", output)
+        self.assertIn("Document indexed: knowledge.txt (2 chunks; 0 new chunks stored).", output)
         mock_client_cls.return_value.stream_message.assert_not_called()
 
 class AddTool(Tool):
@@ -280,6 +281,24 @@ class TestCLIToolCalling(unittest.TestCase):
         # The next turn starts from a clean history: system + the new user message only
         self.assertEqual([m["role"] for m in self.histories[2]], ["system", "user"])
         self.assertEqual(self.histories[2][-1]["content"], "Hello")
+
+
+class TestCLIRAGIntegration(unittest.TestCase):
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_adds_rag_context_only_when_rag_is_enabled(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Grounded answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext("RAG source context", [])
+        captured_output = io.StringIO()
+
+        with patch("builtins.input", side_effect=["Question", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        sent_messages = mock_client.stream_message.call_args.args[0]
+        self.assertEqual(sent_messages[1]["content"], "RAG source context")
+        context_provider.prepare.assert_called_once_with("Question")
 
 if __name__ == "__main__":
     unittest.main()
