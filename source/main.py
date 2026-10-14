@@ -1,34 +1,26 @@
-import time
-import json
-from utilities.ollama_client import OllamaHTTPClient
+import argparse
 from cli.cli import cli
 
 def main():
-    cli()
+    parser = argparse.ArgumentParser(description="Sensai CLI")
+    
+    parser.add_argument(
+        "--session",
+        type=str,
+        default=None,
+        metavar="SESSION_ID",
+        help="Resume a previous session by its ID"
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="llama3.2",
+        help="Ollama model to use (default: llama3.2)"
+    )
 
+    args = parser.parse_args()
 
-    # client = OllamaHTTPClient()
-
-    # messages = [{"role": "user", "content": "Tell me a really short story about sea shells"}]
-
-    # print("--- Streaming test ---")
-    # for line in client.stream_message(messages):
-    #     data = json.loads(line)
-    #     content = data.get("message", {}).get("content", "")
-        
-    #     print(content, end="", flush=True)
-
-    # print("\n\n--- End of the streaming test ---")
-
-    # print("\n--- Models list test ---")
-    # for model in client.list_models():
-    #     print(f"- {model}")
-
-    # print("\n\n--- End of the models list test ---")
-
-    # # print("\n\n--- Embedding test ---")
-    # # print(client.get_embedding("Hello !"))
-    # # print("\n\n--- End of the embedding test ---")
+    cli(model=args.model, session_id=args.session)
 
 if __name__ == "__main__":
     main()
