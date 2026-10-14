@@ -7,7 +7,12 @@ from memory.session_manager import SessionManager
 def cli(model: str = "llama3.2", session_id: str = None):
 
     session = SessionManager(session_id=session_id)
-    messages = session.load(session_id) or [{"role": "system", "content": "You are a helpful assistant."}]
+    try:
+        messages = session.load(session_id) if session_id else None
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    messages = messages or [{"role": "system", "content": "You are a helpful assistant."}]
     client = OllamaHTTPClient(model=model)
 
     def cmd_exit(_args):
@@ -21,8 +26,11 @@ def cli(model: str = "llama3.2", session_id: str = None):
         if not args:
             print("Usage: /load <session_id>")
             return
-        session.load(args[0])
-        print(f"Session {args[0]} loaded.")
+        try:
+            session.load(args[0])
+            print(f"Session {args[0]} loaded.")
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
 
     COMMANDS = {
         "/save": cmd_save,
