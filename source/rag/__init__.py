@@ -31,6 +31,7 @@ from .context import (
     RAGContextConfig,
     RAGContextProvider,
     RAGIndexer,
+    format_source_attribution,
 )
 
 __all__ = [
@@ -66,4 +67,5 @@ __all__ = [
     "RAGContextConfig",
     "RAGContextProvider",
     "RAGIndexer",
+    "format_source_attribution",
 ]

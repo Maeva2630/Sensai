@@ -2,7 +2,7 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from rag.context import RAGContextProvider, RAGIndexer
+from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import EmbeddingError
 from rag.ingestion import DocumentIngestionError, DocumentIngestor
 from rag.storage import VectorStoreError
@@ -117,6 +117,7 @@ def cli(
             turn_start = len(messages)
             messages.append({"role": "user", "content": user_input})
             rag_system_message = None
+            prepared_context = None
             if rag_enabled:
                 try:
                     prepared_context = rag_context_provider.prepare(user_input)
@@ -136,6 +137,10 @@ def cli(
                 messages.append(assistant_message)
 
                 if not raw_tool_calls:
+                    if prepared_context is not None:
+                        attribution = format_source_attribution(prepared_context.results)
+                        if attribution:
+                            print(attribution)
                     break
                 run_tool_calls(registry, raw_tool_calls, messages)
             else:
