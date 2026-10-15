@@ -41,6 +41,9 @@ class DocumentChunk:
     start_char: int
     end_char: int
     text: str
+    language: str | None = None
+    start_line: int = 1
+    end_line: int = 1
 
 
 @dataclass(frozen=True)
@@ -67,7 +70,15 @@ class DocumentChunker:
         if not document.text.strip():
             return []
 
-        units = self._build_units(document.text)
+        units = self._structured_units(document) or self._build_units(document.text)
+        return self._chunk_with_units(document, units)
+
+    def _chunk_with_units(
+        self,
+        document: IngestedDocument,
+        units: List[_TextUnit],
+    ) -> List[DocumentChunk]:
+        """Build bounded, overlapping chunks from already selected boundaries."""
         chunks: List[DocumentChunk] = []
         chunk_start = units[0].start_char
 
@@ -83,6 +94,9 @@ class DocumentChunker:
                     start_char=chunk_start,
                     end_char=chunk_end,
                     text=document.text[chunk_start:chunk_end],
+                    language=document.language,
+                    start_line=self._line_number(document.text, chunk_start),
+                    end_line=self._end_line_number(document.text, chunk_start, chunk_end),
                 )
             )
 
@@ -93,6 +107,55 @@ class DocumentChunker:
             chunk_start = next_start if next_start > chunk_start else chunk_end
 
         return chunks
+
+    def _structured_units(self, document: IngestedDocument) -> List[_TextUnit] | None:
+        """Find conservative declaration boundaries for technical source files.
+
+        These patterns intentionally do not parse or execute source code. They
+        only improve chunk boundaries when a language has an obvious, readable
+        line-level declaration. Unknown formats keep the generic chunker.
+        """
+        language = document.language
+        if document.source_type not in {"code", "configuration", "markup"} or not language:
+            return None
+
+        starts: list[int] = [0]
+        offset = 0
+        for line in document.text.splitlines(keepends=True):
+            if offset and self._is_structural_start(line, language):
+                starts.append(offset)
+            offset += len(line)
+
+        if len(starts) == 1:
+            return None
+        starts.append(len(document.text))
+        return [
+            _TextUnit(start, end)
+            for start, end in zip(starts, starts[1:])
+            if document.text[start:end].strip()
+        ]
+
+    @staticmethod
+    def _is_structural_start(line: str, language: str) -> bool:
+        """Return whether a line is a conservative boundary for its language."""
+        if language == "python":
+            return bool(re.match(r"^(?:async\s+def|def|class)\s+", line))
+        if language in {"c", "c++", "c/c++ header", "java", "go", "rust", "javascript", "typescript"}:
+            if line[:1].isspace():
+                return False
+            return bool(
+                re.match(r"^(?:class|struct|namespace|interface|enum)\b", line)
+                or re.match(r"^[\w:<>,~*&\s]+\s+\w+\s*\([^;]*\)\s*(?:const\s*)?\{", line)
+            )
+        if language in {"xml", "svg", "html"}:
+            return bool(re.match(r"^\s*<(?![/?!])", line))
+        if language in {"ini", "toml"}:
+            return bool(re.match(r"^\s*\[[^\]]+\]", line))
+        if language in {"yaml", "json"}:
+            return bool(re.match(r"^(?:[A-Za-z_][\w-]*|\"[^\"]+\")\s*:", line))
+        if language in {"css", "sql", "shell"}:
+            return bool(re.match(r"^\S.*(?:\{|;)$", line))
+        return False
 
     def _find_chunk_end(self, units: List[_TextUnit], start_char: int, text_length: int) -> int:
         """Prefer the latest natural boundary that fits inside the chunk budget."""
@@ -188,6 +251,19 @@ class DocumentChunker:
         while start_char < len(text) and text[start_char].isspace():
             start_char += 1
         return start_char
+
+    @staticmethod
+    def _line_number(text: str, character_offset: int) -> int:
+        """Convert a zero-based character offset into a one-based line number."""
+        return text.count("\n", 0, character_offset) + 1
+
+    @classmethod
+    def _end_line_number(cls, text: str, start_char: int, end_char: int) -> int:
+        """Return the line containing the final non-whitespace character."""
+        content_end = end_char
+        while content_end > start_char and text[content_end - 1].isspace():
+            content_end -= 1
+        return cls._line_number(text, max(start_char, content_end - 1))
 
     @staticmethod
     def _chunk_id(document_id: str, chunk_index: int, start_char: int, end_char: int) -> str:
