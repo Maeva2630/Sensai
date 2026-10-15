@@ -2,7 +2,12 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
+from rag.context import (
+    ArchiveIndexingResult,
+    RAGContextProvider,
+    RAGIndexer,
+    format_source_attribution,
+)
 from rag.embeddings import EmbeddingError
 from rag.ingestion import DocumentIngestionError, DocumentIngestor
 from rag.storage import VectorStoreError
@@ -178,10 +183,34 @@ def _handle_ingest_command(user_input: str, rag_indexer: RAGIndexer) -> None:
         print(f"Document indexing failed: {error}")
         return
 
+    if isinstance(result, ArchiveIndexingResult):
+        _print_archive_indexing_summary(result)
+        return
+
     print(
         f"Document indexed: {result.document.source_filename} "
         f"({result.chunk_count} chunks; {result.inserted_chunk_count} new chunks stored)."
     )
+
+
+def _print_archive_indexing_summary(result: ArchiveIndexingResult) -> None:
+    """Display successful, skipped, and failed archive entries separately."""
+    archive = result.archive
+    print(
+        f"Archive indexed: {archive.archive_filename} "
+        f"({len(result.indexed_documents)} files indexed; {result.chunk_count} chunks; "
+        f"{result.inserted_chunk_count} new chunks stored)."
+    )
+    if result.indexed_documents:
+        indexed_files = ", ".join(
+            document_result.document.archive_entry_path or document_result.document.source_filename
+            for document_result in result.indexed_documents
+        )
+        print(f"Indexed files: {indexed_files}")
+    if archive.skipped_entries:
+        print(f"Skipped unsupported files: {', '.join(archive.skipped_entries)}")
+    for failure in archive.failed_entries:
+        print(f"Failed to extract {failure.entry_path}: {failure.reason}")
 
 
 def _handle_rag_command(user_input: str, rag_enabled: bool) -> bool:

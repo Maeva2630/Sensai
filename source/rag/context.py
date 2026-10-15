@@ -6,7 +6,7 @@ from typing import Sequence
 
 from .chunking import DocumentChunker
 from .embeddings import EmbeddingGenerator
-from .ingestion import DocumentIngestor, IngestedDocument
+from .ingestion import ArchiveIngestionResult, DocumentIngestor, IngestedDocument
 from .storage import DEFAULT_TOP_K, LocalVectorStore, SearchResult
 
 
@@ -34,6 +34,22 @@ class IndexingResult:
     document: IngestedDocument
     chunk_count: int
     inserted_chunk_count: int
+
+
+@dataclass(frozen=True)
+class ArchiveIndexingResult:
+    """The outcome of indexing every valid document in a ZIP archive."""
+
+    archive: ArchiveIngestionResult
+    indexed_documents: Sequence[IndexingResult]
+
+    @property
+    def chunk_count(self) -> int:
+        return sum(result.chunk_count for result in self.indexed_documents)
+
+    @property
+    def inserted_chunk_count(self) -> int:
+        return sum(result.inserted_chunk_count for result in self.indexed_documents)
 
 
 @dataclass(frozen=True)
@@ -81,8 +97,20 @@ class RAGIndexer:
         self.embedding_generator = embedding_generator or EmbeddingGenerator()
         self.vector_store = vector_store or LocalVectorStore()
 
-    def index_document(self, document_path: str | Path) -> IndexingResult:
+    def index_document(self, document_path: str | Path) -> IndexingResult | ArchiveIndexingResult:
+        if Path(document_path).suffix.lower() == ".zip":
+            return self.index_archive(document_path)
         document = self.ingestor.ingest(document_path)
+        return self._index_ingested_document(document)
+
+    def index_archive(self, archive_path: str | Path) -> ArchiveIndexingResult:
+        archive = self.ingestor.ingest_archive(archive_path)
+        indexed_documents = [
+            self._index_ingested_document(document) for document in archive.documents
+        ]
+        return ArchiveIndexingResult(archive, indexed_documents)
+
+    def _index_ingested_document(self, document: IngestedDocument) -> IndexingResult:
         chunks = self.chunker.chunk(document)
         embedded_chunks = self.embedding_generator.embed_chunks(chunks)
         inserted_chunk_count = self.vector_store.store_chunks(embedded_chunks)

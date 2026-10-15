@@ -1,6 +1,9 @@
 """Components used by the Retrieval-Augmented Generation (RAG) pipeline."""
 
 from .ingestion import (
+    ArchiveEntryFailure,
+    ArchiveIngestionError,
+    ArchiveIngestionResult,
     DocumentDecodingError,
     DocumentIngestionError,
     DocumentIngestor,
@@ -9,6 +12,7 @@ from .ingestion import (
     EmptyDocumentError,
     IngestedDocument,
     PDFTextExtractionError,
+    UnsafeArchiveError,
     UnsupportedDocumentTypeError,
 )
 from .chunking import ChunkingConfig, DocumentChunk, DocumentChunker
@@ -28,6 +32,7 @@ from .embeddings import (
 from .storage import DEFAULT_TOP_K, InvalidVectorError, LocalVectorStore, SearchResult, VectorStoreError
 from .context import (
     DEFAULT_CONTEXT_CHARACTER_BUDGET,
+    ArchiveIndexingResult,
     IndexingResult,
     PreparedContext,
     RAGContextConfig,
@@ -37,6 +42,9 @@ from .context import (
 )
 
 __all__ = [
+    "ArchiveEntryFailure",
+    "ArchiveIngestionError",
+    "ArchiveIngestionResult",
     "DocumentDecodingError",
     "DocumentIngestionError",
     "DocumentIngestor",
@@ -45,6 +53,7 @@ __all__ = [
     "EmptyDocumentError",
     "IngestedDocument",
     "PDFTextExtractionError",
+    "UnsafeArchiveError",
     "UnsupportedDocumentTypeError",
     "ChunkingConfig",
     "DocumentChunk",
@@ -66,6 +75,7 @@ __all__ = [
     "SearchResult",
     "VectorStoreError",
     "DEFAULT_CONTEXT_CHARACTER_BUDGET",
+    "ArchiveIndexingResult",
     "IndexingResult",
     "PreparedContext",
     "RAGContextConfig",

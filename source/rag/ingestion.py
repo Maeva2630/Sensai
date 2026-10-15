@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
-from typing import Callable, Dict, Union
+from pathlib import PurePosixPath
+from tempfile import TemporaryDirectory
+from typing import Callable, Dict, Sequence, Union
+from zipfile import BadZipFile, ZipFile, ZipInfo
 
 
 class DocumentIngestionError(Exception):
@@ -34,6 +37,14 @@ class DOCXTextExtractionError(DocumentIngestionError):
     """Raised when a DOCX cannot provide readable paragraph text."""
 
 
+class ArchiveIngestionError(DocumentIngestionError):
+    """Raised when a ZIP archive cannot be inspected or read safely."""
+
+
+class UnsafeArchiveError(ArchiveIngestionError):
+    """Raised when a ZIP archive exceeds a security limit."""
+
+
 @dataclass(frozen=True)
 class IngestedDocument:
     """Normalized document and its source metadata, ready for chunking."""
@@ -46,6 +57,27 @@ class IngestedDocument:
     source_extension: str = ""
     source_type: str = "document"
     language: str | None = None
+    archive_filename: str | None = None
+    archive_entry_path: str | None = None
+
+
+@dataclass(frozen=True)
+class ArchiveEntryFailure:
+    """One supported archive entry that could not be extracted."""
+
+    entry_path: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ArchiveIngestionResult:
+    """Documents and non-fatal outcomes collected from one safe ZIP archive."""
+
+    archive_filename: str
+    archive_path: str
+    documents: Sequence[IngestedDocument]
+    skipped_entries: Sequence[str]
+    failed_entries: Sequence[ArchiveEntryFailure]
 
 
 TextExtractor = Callable[[Path], str]
@@ -70,6 +102,11 @@ class DocumentIngestor:
     """
 
     _SOURCE_TYPES = frozenset({"document", "code", "configuration", "markup"})
+    MAX_ARCHIVE_SIZE_BYTES = 50 * 1024 * 1024
+    MAX_ARCHIVE_UNCOMPRESSED_SIZE_BYTES = 250 * 1024 * 1024
+    MAX_ARCHIVE_FILE_COUNT = 1_000
+    MAX_ARCHIVE_NESTING_DEPTH = 10
+    MAX_ARCHIVE_COMPRESSION_RATIO = 100
     _DEFAULT_FORMATS = (
         (".txt", "document", None),
         (".md", "markup", "markdown"),
@@ -187,6 +224,132 @@ class DocumentIngestor:
             source_extension=extension,
             source_type=registration.source_type,
             language=registration.language,
+        )
+
+    def ingest_archive(self, archive_path: PathLike) -> ArchiveIngestionResult:
+        """Extract supported entries from a ZIP without writing archive paths to disk.
+
+        Individual unsupported or malformed documents are recorded and do not
+        prevent other safe entries from being ingested. Archive-level safety
+        violations reject the entire archive before any entry is processed.
+        """
+        path = Path(archive_path).expanduser()
+        if not path.exists() or not path.is_file():
+            raise DocumentNotFoundError(f"Document not found: {path}")
+        if path.suffix.lower() != ".zip":
+            raise UnsupportedDocumentTypeError(f"Archive '{path.name}' is not a ZIP file.")
+        if path.stat().st_size > self.MAX_ARCHIVE_SIZE_BYTES:
+            raise UnsafeArchiveError(
+                f"Archive '{path.name}' exceeds the maximum compressed size "
+                f"of {self.MAX_ARCHIVE_SIZE_BYTES} bytes."
+            )
+
+        try:
+            with ZipFile(path) as archive:
+                entries = self._validate_archive_entries(archive, path.name)
+                return self._ingest_archive_entries(path, archive, entries)
+        except BadZipFile as error:
+            raise ArchiveIngestionError(
+                f"Could not read ZIP archive '{path.name}'. The file may be corrupted."
+            ) from error
+        except OSError as error:
+            raise ArchiveIngestionError(f"Could not read archive '{path}': {error}") from error
+
+    def _validate_archive_entries(self, archive: ZipFile, archive_name: str) -> list[ZipInfo]:
+        entries = [entry for entry in archive.infolist() if not entry.is_dir()]
+        if len(entries) > self.MAX_ARCHIVE_FILE_COUNT:
+            raise UnsafeArchiveError(
+                f"Archive '{archive_name}' contains more than {self.MAX_ARCHIVE_FILE_COUNT} files."
+            )
+
+        total_uncompressed_size = 0
+        for entry in entries:
+            entry_path = self._safe_archive_entry_path(entry.filename, archive_name)
+            if len(entry_path.parts) - 1 > self.MAX_ARCHIVE_NESTING_DEPTH:
+                raise UnsafeArchiveError(
+                    f"Archive entry '{entry.filename}' exceeds the maximum nesting depth "
+                    f"of {self.MAX_ARCHIVE_NESTING_DEPTH}."
+                )
+            if entry.flag_bits & 0x1:
+                raise UnsafeArchiveError(
+                    f"Archive entry '{entry.filename}' is password-protected, which is not supported."
+                )
+
+            total_uncompressed_size += entry.file_size
+            if total_uncompressed_size > self.MAX_ARCHIVE_UNCOMPRESSED_SIZE_BYTES:
+                raise UnsafeArchiveError(
+                    f"Archive '{archive_name}' exceeds the maximum uncompressed size "
+                    f"of {self.MAX_ARCHIVE_UNCOMPRESSED_SIZE_BYTES} bytes."
+                )
+            if entry.file_size and not entry.compress_size:
+                raise UnsafeArchiveError(
+                    f"Archive entry '{entry.filename}' has a suspicious compression ratio."
+                )
+            if entry.compress_size and entry.file_size / entry.compress_size > self.MAX_ARCHIVE_COMPRESSION_RATIO:
+                raise UnsafeArchiveError(
+                    f"Archive entry '{entry.filename}' exceeds the maximum compression ratio "
+                    f"of {self.MAX_ARCHIVE_COMPRESSION_RATIO}:1."
+                )
+        return entries
+
+    @staticmethod
+    def _safe_archive_entry_path(entry_name: str, archive_name: str) -> PurePosixPath:
+        normalized_name = entry_name.replace("\\", "/")
+        entry_path = PurePosixPath(normalized_name)
+        if (
+            entry_path.is_absolute()
+            or ".." in entry_path.parts
+            or not entry_path.parts
+            or entry_path.parts[0].endswith(":")
+        ):
+            raise UnsafeArchiveError(
+                f"Archive '{archive_name}' contains an unsafe path: '{entry_name}'."
+            )
+        return entry_path
+
+    def _ingest_archive_entries(
+        self,
+        archive_path: Path,
+        archive: ZipFile,
+        entries: Sequence[ZipInfo],
+    ) -> ArchiveIngestionResult:
+        documents: list[IngestedDocument] = []
+        skipped_entries: list[str] = []
+        failed_entries: list[ArchiveEntryFailure] = []
+
+        with TemporaryDirectory(prefix="sensai-rag-") as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            for index, entry in enumerate(entries):
+                entry_path = self._safe_archive_entry_path(entry.filename, archive_path.name)
+                extension = entry_path.suffix.lower()
+                if extension not in self._extractors:
+                    skipped_entries.append(entry_path.as_posix())
+                    continue
+
+                try:
+                    temporary_path = temporary_root / f"entry-{index}{extension}"
+                    temporary_path.write_bytes(archive.read(entry))
+                    document = self.ingest(temporary_path)
+                except (DocumentIngestionError, OSError, RuntimeError) as error:
+                    failed_entries.append(ArchiveEntryFailure(entry_path.as_posix(), str(error)))
+                    continue
+
+                documents.append(
+                    replace(
+                        document,
+                        source_filename=f"{archive_path.name}::{entry_path.as_posix()}",
+                        source_path=f"{archive_path.resolve()}::{entry_path.as_posix()}",
+                        archive_filename=archive_path.name,
+                        archive_entry_path=entry_path.as_posix(),
+                    )
+                )
+
+        return ArchiveIngestionResult(
+            archive_filename=archive_path.name,
+            archive_path=str(archive_path.resolve()),
+            documents=documents,
+            skipped_entries=skipped_entries,
+            failed_entries=failed_entries,
         )
 
     def _extract_text_file(self, path: Path) -> str:
