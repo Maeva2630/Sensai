@@ -4,13 +4,12 @@ from utilities.ollama_client import OllamaHTTPClient, OllamaConnectionError, Oll
 from memory.session_manager import SessionManager
 from memory.profile_manager import ProfileManager
 
-def cli(model: str = "llama3.2", session_id: str = None):
+def cli(model: str = "llama3.2", session_id: str = None, profile_path: str = "profile.json"):
     """Launch the CLI application with optional session resumption."""
 
-    session = SessionManager(session_id=session_id)
-    profile_manager = ProfileManager()
-
     try:
+        session = SessionManager(session_id=session_id)
+        profile_manager = ProfileManager(profile_path=profile_path)
         messages = session.load(session_id) if session_id else [{"role": "system", "content": profile_manager.build_system_prompt()}]
     except FileNotFoundError as e:
         print(f"Error: {e}")
