@@ -153,8 +153,10 @@ class RAGContextProvider:
             return self._fit_to_budget("".join(parts) + "No relevant indexed excerpts were found.")
 
         for result in results:
+            language = f" | Language: {result.language}" if result.language else ""
             source_header = (
                 f"[Source: {result.source_filename} | Chunk: {result.chunk_id} | "
+                f"Lines: {result.start_line}-{result.end_line}{language} | "
                 f"Score: {result.similarity_score:.3f}]\n"
             )
             remaining = self.config.max_context_characters - len("".join(parts))
