@@ -136,7 +136,6 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertIn("Document already ingested: knowledge.txt", output)
         mock_client_cls.return_value.stream_message.assert_not_called()
 
-
 class AddTool(Tool):
     name = "add"
     description = "Add two integers."
@@ -281,7 +280,6 @@ class TestCLIToolCalling(unittest.TestCase):
         # The next turn starts from a clean history: system + the new user message only
         self.assertEqual([m["role"] for m in self.histories[2]], ["system", "user"])
         self.assertEqual(self.histories[2][-1]["content"], "Hello")
-
 
 if __name__ == "__main__":
     unittest.main()
