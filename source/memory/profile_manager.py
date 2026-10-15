@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 
+
 class ProfileManager:
-    """Manage user profile information"""
+    """Manage user profile information."""
 
     DEFAULT_PROFILE = {
         "user_name": "User",
@@ -10,9 +11,9 @@ class ProfileManager:
         "domain_expertise": "General",
         "constraints": []
     }
-    
-    def __init__(self, profile_path: str = "profile.json"):
-        self.profile_path = Path(profile_path)
+
+    def __init__(self, profile_path: str | Path | None = None):
+        self.profile_path = Path(profile_path) if profile_path else Path("profile.json")
         self.data = self.load()
 
     def load(self) -> dict:
@@ -33,12 +34,12 @@ class ProfileManager:
     def build_system_prompt(self, base_instructions: str = "You are a helpful assistant.") -> str:
         """Inject profile information as system instructions for LLM."""
         constraints_str = "\n".join(f"- {c}" for c in self.data.get("constraints", [])) or "None"
-        
+
         return f"""{base_instructions}
-                    USER PROFILE:
-                    - Name: {self.data.get('user_name')}
-                    - Preferred Language: {self.data.get('preferred_language')}
-                    - Domain Expertise: {self.data.get('domain_expertise')}
-                    - Constraints:
-                    {constraints_str}
-                """
+
+USER PROFILE:
+- Name: {self.data.get('user_name')}
+- Preferred Language: {self.data.get('preferred_language')}
+- Domain Expertise: {self.data.get('domain_expertise')}
+- Constraints:
+{constraints_str}"""
