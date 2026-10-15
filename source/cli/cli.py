@@ -90,7 +90,6 @@ def cli(
 
     client = OllamaHTTPClient(model=model)
     registry = registry if registry is not None else default_registry()
-    tools = registry.to_ollama_tools()
     ingestor = ingestor or DocumentIngestor()
     rag_indexer = rag_indexer or RAGIndexer(ingestor=ingestor)
     rag_context_provider = rag_context_provider or RAGContextProvider(
@@ -116,9 +115,13 @@ def cli(
 
             turn_start = len(messages)
             messages.append({"role": "user", "content": user_input})
+            tools = registry.to_ollama_tools(user_input)
             rag_system_message = None
             prepared_context = None
-            if rag_enabled:
+            # A tool-specific request should be handled by its matching tool,
+            # not by document retrieval. For all other requests, RAG keeps its
+            # normal document-grounded behavior.
+            if rag_enabled and not tools:
                 try:
                     prepared_context = rag_context_provider.prepare(user_input)
                     rag_system_message = prepared_context.system_message

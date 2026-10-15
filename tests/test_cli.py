@@ -72,6 +72,19 @@ class TestCLIExceptionHandling(unittest.TestCase):
         output = captured_output.getvalue()
         self.assertIn("Assistant: Hi there!", output)
 
+    @patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_offers_time_tool_for_a_time_request(self, mock_client_cls, mock_input):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Il est 10:00."}}']
+
+        with patch("sys.stdout", io.StringIO()):
+            cli()
+
+        offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
+        self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["get_time"])
+
     @patch("builtins.input", side_effect=[KeyboardInterrupt])
     @patch("cli.cli.OllamaHTTPClient")
     def test_cli_keyboard_interrupt_exits(self, mock_client_cls, mock_input):
@@ -296,7 +309,24 @@ class TestCLIRAGIntegration(unittest.TestCase):
 
         sent_messages = mock_client.stream_message.call_args.args[0]
         self.assertEqual(sent_messages[1]["content"], "RAG source context")
+        self.assertEqual(mock_client.stream_message.call_args.kwargs["tools"], [])
         context_provider.prepare.assert_called_once_with("Question")
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_routes_a_time_request_to_the_tool_when_rag_is_enabled(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Il est 10:00."}}']
+        context_provider = MagicMock()
+
+        with patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"]), patch(
+            "sys.stdout", io.StringIO()
+        ):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        context_provider.prepare.assert_not_called()
+        offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
+        self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["get_time"])
 
     @patch("cli.cli.OllamaHTTPClient")
     def test_cli_displays_sources_used_for_a_rag_answer(self, mock_client_cls):

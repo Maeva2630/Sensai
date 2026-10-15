@@ -56,9 +56,12 @@ class ToolRegistry:
     def list_tools(self) -> List[Tool]:
         return list(self._tools.values())
 
-    def to_ollama_tools(self) -> List[Dict[str, Any]]:
-        """Tools payload for OllamaHTTPClient (`tools` parameter)."""
-        return [tool.to_ollama_tool() for tool in self._tools.values()]
+    def to_ollama_tools(self, user_input: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return tool definitions, optionally filtered for one user request."""
+        tools = self._tools.values()
+        if user_input is not None:
+            tools = (tool for tool in tools if tool.is_relevant_for(user_input))
+        return [tool.to_ollama_tool() for tool in tools]
 
     def execute(self, name: str, arguments: Any) -> ToolResult:
         """Validate and run a tool. Never raises: failures come back as an error result."""
