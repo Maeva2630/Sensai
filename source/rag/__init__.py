@@ -7,6 +7,7 @@ from .ingestion import (
     DocumentNotFoundError,
     EmptyDocumentError,
     IngestedDocument,
+    PDFTextExtractionError,
     UnsupportedDocumentTypeError,
 )
 from .chunking import ChunkingConfig, DocumentChunk, DocumentChunker
@@ -41,6 +42,7 @@ __all__ = [
     "DocumentNotFoundError",
     "EmptyDocumentError",
     "IngestedDocument",
+    "PDFTextExtractionError",
     "UnsupportedDocumentTypeError",
     "ChunkingConfig",
     "DocumentChunk",

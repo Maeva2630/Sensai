@@ -26,6 +26,10 @@ class EmptyDocumentError(DocumentIngestionError):
     """Raised when a document contains no useful text after normalization."""
 
 
+class PDFTextExtractionError(DocumentIngestionError):
+    """Raised when a PDF cannot provide extractable, native text."""
+
+
 @dataclass(frozen=True)
 class IngestedDocument:
     """Normalized document and its source metadata, ready for chunking."""
@@ -65,6 +69,7 @@ class DocumentIngestor:
     _DEFAULT_FORMATS = (
         (".txt", "document", None),
         (".md", "markup", "markdown"),
+        (".pdf", "document", "pdf"),
         (".py", "code", "python"),
         (".c", "code", "c"),
         (".h", "code", "c/c++ header"),
@@ -92,9 +97,12 @@ class DocumentIngestor:
         self.encoding = encoding
         self._extractors: Dict[str, ExtractorRegistration] = {}
         for extension, source_type, language in self._DEFAULT_FORMATS:
+            extractor = (
+                self._extract_pdf_file if extension == ".pdf" else self._extract_text_file
+            )
             self.register_extractor(
                 extension,
-                self._extract_text_file,
+                extractor,
                 source_type=source_type,
                 language=language,
             )
@@ -148,6 +156,8 @@ class DocumentIngestor:
 
         try:
             extracted_text = registration.extractor(path)
+        except DocumentIngestionError:
+            raise
         except UnicodeDecodeError as error:
             raise DocumentDecodingError(
                 f"Could not decode '{path.name}' as {self.encoding}. "
@@ -174,6 +184,41 @@ class DocumentIngestor:
 
     def _extract_text_file(self, path: Path) -> str:
         return path.read_text(encoding=self.encoding)
+
+    @staticmethod
+    def _load_pdf_reader():
+        """Load pypdf only when a PDF is requested.
+
+        This keeps plain-text and source-code ingestion independent from the
+        optional PDF implementation at import time.
+        """
+        try:
+            from pypdf import PdfReader
+        except ImportError as error:
+            raise PDFTextExtractionError(
+                "PDF support requires the 'pypdf' package. "
+                "Install the project dependencies and try again."
+            ) from error
+        return PdfReader
+
+    def _extract_pdf_file(self, path: Path) -> str:
+        """Return native text from a PDF without OCR or layout reconstruction."""
+        pdf_reader = self._load_pdf_reader()
+        try:
+            reader = pdf_reader(path)
+            page_texts = [page.extract_text() or "" for page in reader.pages]
+        except Exception as error:
+            raise PDFTextExtractionError(
+                f"Could not read PDF '{path.name}'. The file may be corrupted or invalid."
+            ) from error
+
+        extracted_text = "\n".join(page_texts)
+        if not extracted_text.strip():
+            raise PDFTextExtractionError(
+                f"PDF '{path.name}' contains no extractable text. "
+                "It may be scanned or image-only; OCR is not yet supported."
+            )
+        return extracted_text
 
     @staticmethod
     def _normalize_text(text: str) -> str:

@@ -169,7 +169,7 @@ def _handle_ingest_command(user_input: str, rag_indexer: RAGIndexer) -> None:
     """Index a local document without sending the command to the chat model."""
     command, separator, document_path = user_input.partition(" ")
     if command != "/ingest" or not separator or not document_path.strip():
-        print("Usage: /ingest <path-to-.txt-or-.md-file>")
+        print("Usage: /ingest <path-to-document>")
         return
 
     try:
