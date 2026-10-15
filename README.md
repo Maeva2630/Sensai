@@ -73,6 +73,16 @@ Limit retrieval to one or more exact source filenames, or to an ingestion catego
 
 Only chunks matching the active filter are considered before semantic similarity ranking. If no indexed chunk matches, SensAI reports that the active filter has no matching chunks. With no active filter, RAG keeps its normal retrieval behavior.
 
+### Source display
+
+SensAI prints verified source files and chunk identifiers after a RAG answer by default. The model is instructed not to repeat those citations in its generated text. Control this display with:
+
+```text
+/sources on
+/sources off
+/sources status
+```
+
 ### Example RAG workflow
 
 Start the application, then index a document and enable RAG mode:

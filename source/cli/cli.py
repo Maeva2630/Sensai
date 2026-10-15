@@ -93,6 +93,7 @@ def cli(
 ) -> None:
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
     metadata_filter: MetadataFilter | None = None
+    show_sources = True
 
     client = OllamaHTTPClient(model=model)
     registry = registry if registry is not None else default_registry()
@@ -121,6 +122,10 @@ def cli(
 
             if user_input.startswith("/ingest"):
                 _handle_ingest_command(user_input, rag_indexer)
+                continue
+
+            if user_input.startswith("/sources"):
+                show_sources = _handle_sources_command(user_input, show_sources)
                 continue
 
             turn_start = len(messages)
@@ -155,10 +160,10 @@ def cli(
                 messages.append(assistant_message)
 
                 if not raw_tool_calls:
-                    if prepared_context is not None:
+                    if show_sources and prepared_context is not None:
                         attribution = format_source_attribution(prepared_context.results)
                         if attribution:
-                            print(attribution)
+                            print(f"\n{attribution}")
                     break
                 run_tool_calls(registry, raw_tool_calls, messages)
             else:
@@ -267,3 +272,20 @@ def _handle_rag_filter_command(
         return current_filter
     print("Usage: /rag filter <name <source>[,<source>...]|category <type>[,<type>...]|clear>")
     return current_filter
+
+
+def _handle_sources_command(user_input: str, show_sources: bool) -> bool:
+    """Enable, disable, or report CLI-generated source attribution lines."""
+    command, _, option = user_input.partition(" ")
+    normalized_option = option.strip().lower()
+    if command != "/sources" or normalized_option not in {"on", "off", "status"}:
+        print("Usage: /sources <on|off|status>")
+        return show_sources
+    if normalized_option == "on":
+        print("Source display enabled.")
+        return True
+    if normalized_option == "off":
+        print("Source display disabled.")
+        return False
+    print(f"Source display is {'enabled' if show_sources else 'disabled'}.")
+    return show_sources

@@ -122,8 +122,9 @@ class RAGContextProvider:
 
     _INSTRUCTIONS = (
         "You are a document-grounded assistant. Answer only with information supported by the "
-        "retrieved excerpts below. Cite the source filename when you use an excerpt. If the "
-        "excerpts do not contain the answer, say exactly: 'I cannot find this information in the "
+        "retrieved excerpts below. Do not include source citations, chunk identifiers, or line "
+        "numbers in your answer: the CLI displays verified sources separately. If the excerpts "
+        "do not contain the answer, say exactly: 'I cannot find this information in the "
         "indexed documents.' Do not use outside knowledge.\n\nRetrieved context:\n"
     )
 
