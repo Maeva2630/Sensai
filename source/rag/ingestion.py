@@ -28,17 +28,29 @@ class EmptyDocumentError(DocumentIngestionError):
 
 @dataclass(frozen=True)
 class IngestedDocument:
-    """Normalized document ready for the future chunking and indexing stages."""
+    """Normalized document and its source metadata, ready for chunking."""
 
     document_id: str
     source_filename: str
     source_path: str
     text: str
     character_count: int
+    source_extension: str = ""
+    source_type: str = "document"
+    language: str | None = None
 
 
 TextExtractor = Callable[[Path], str]
 PathLike = Union[str, Path]
+
+
+@dataclass(frozen=True)
+class ExtractorRegistration:
+    """A text extractor and the metadata associated with its file extension."""
+
+    extractor: TextExtractor
+    source_type: str
+    language: str | None
 
 
 class DocumentIngestor:
@@ -49,18 +61,57 @@ class DocumentIngestor:
     The callers and the rest of the RAG pipeline do not need to change.
     """
 
+    _SOURCE_TYPES = frozenset({"document", "code", "configuration", "markup"})
+    _DEFAULT_FORMATS = (
+        (".txt", "document", None),
+        (".md", "markup", "markdown"),
+        (".py", "code", "python"),
+        (".c", "code", "c"),
+        (".h", "code", "c/c++ header"),
+        (".cpp", "code", "c++"),
+        (".hpp", "code", "c++"),
+        (".js", "code", "javascript"),
+        (".ts", "code", "typescript"),
+        (".java", "code", "java"),
+        (".go", "code", "go"),
+        (".rs", "code", "rust"),
+        (".html", "markup", "html"),
+        (".css", "code", "css"),
+        (".xml", "markup", "xml"),
+        (".svg", "markup", "svg"),
+        (".json", "configuration", "json"),
+        (".yaml", "configuration", "yaml"),
+        (".yml", "configuration", "yaml"),
+        (".toml", "configuration", "toml"),
+        (".ini", "configuration", "ini"),
+        (".sql", "code", "sql"),
+        (".sh", "code", "shell"),
+    )
+
     def __init__(self, encoding: str = "utf-8") -> None:
         self.encoding = encoding
-        self._extractors: Dict[str, TextExtractor] = {}
-        self.register_extractor(".txt", self._extract_text_file)
-        self.register_extractor(".md", self._extract_text_file)
+        self._extractors: Dict[str, ExtractorRegistration] = {}
+        for extension, source_type, language in self._DEFAULT_FORMATS:
+            self.register_extractor(
+                extension,
+                self._extract_text_file,
+                source_type=source_type,
+                language=language,
+            )
 
     @property
     def supported_extensions(self) -> tuple[str, ...]:
         """Return supported extensions in a predictable order for CLI messages."""
         return tuple(sorted(self._extractors))
 
-    def register_extractor(self, extension: str, extractor: TextExtractor) -> None:
+    def register_extractor(
+        self,
+        extension: str,
+        extractor: TextExtractor,
+        *,
+        source_type: str = "document",
+        language: str | None = None,
+    ) -> None:
         """Register an extractor for one file extension.
 
         Keeping extraction behind this small registry makes later PDF support a
@@ -69,7 +120,16 @@ class DocumentIngestor:
         normalized_extension = extension.lower()
         if not normalized_extension.startswith("."):
             raise ValueError("A document extension must start with a dot, for example '.pdf'.")
-        self._extractors[normalized_extension] = extractor
+        normalized_source_type = source_type.lower()
+        if normalized_source_type not in self._SOURCE_TYPES:
+            allowed_types = ", ".join(sorted(self._SOURCE_TYPES))
+            raise ValueError(f"source_type must be one of: {allowed_types}.")
+        normalized_language = language.lower() if language else None
+        self._extractors[normalized_extension] = ExtractorRegistration(
+            extractor=extractor,
+            source_type=normalized_source_type,
+            language=normalized_language,
+        )
 
     def ingest(self, document_path: PathLike) -> IngestedDocument:
         """Validate and extract a document into text and source metadata."""
@@ -78,8 +138,8 @@ class DocumentIngestor:
             raise DocumentNotFoundError(f"Document not found: {path}")
 
         extension = path.suffix.lower()
-        extractor = self._extractors.get(extension)
-        if extractor is None:
+        registration = self._extractors.get(extension)
+        if registration is None:
             supported = ", ".join(self.supported_extensions)
             raise UnsupportedDocumentTypeError(
                 f"Unsupported document type '{extension or '[no extension]'}'. "
@@ -87,7 +147,7 @@ class DocumentIngestor:
             )
 
         try:
-            extracted_text = extractor(path)
+            extracted_text = registration.extractor(path)
         except UnicodeDecodeError as error:
             raise DocumentDecodingError(
                 f"Could not decode '{path.name}' as {self.encoding}. "
@@ -107,6 +167,9 @@ class DocumentIngestor:
             source_path=str(path.resolve()),
             text=normalized_text,
             character_count=len(normalized_text),
+            source_extension=extension,
+            source_type=registration.source_type,
+            language=registration.language,
         )
 
     def _extract_text_file(self, path: Path) -> str:
