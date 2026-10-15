@@ -49,7 +49,7 @@ While the application is running, use the following command to validate, chunk, 
 /ingest path/to/document.md
 ```
 
-The command currently supports UTF-8 encoded `.txt` and `.md` files. It validates the path, file type, encoding, and content, then stores its chunks and embeddings in the local RAG database. Enter `exit` or `quit` to leave the application.
+The command supports UTF-8 encoded documents and source files. Supported extensions include `.txt`, `.md`, `.py`, `.c`, `.h`, `.cpp`, `.hpp`, `.js`, `.ts`, `.java`, `.go`, `.rs`, `.html`, `.css`, `.xml`, `.svg`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.sql`, and `.sh`. SensAI reads these files as text only: it never executes, imports, renders, or interprets their contents. The command validates the path, file type, encoding, and content, then stores its chunks and embeddings in the local RAG database. Enter `exit` or `quit` to leave the application.
 
 ### Use documents in the chat
 
