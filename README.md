@@ -61,6 +61,18 @@ Enable document-grounded answers after indexing at least one document:
 
 While RAG mode is enabled, SensAI retrieves the most relevant excerpts before every question, sends them as bounded context to Ollama, and cites the source filename in its answer. If the information cannot be found in the indexed documents, it must say so. Use `/rag off` to restore the normal chatbot behavior, or `/rag status` to display the current mode.
 
+### Filter RAG sources
+
+Limit retrieval to one or more exact source filenames, or to an ingestion category. Categories are `document`, `code`, `configuration`, and `markup`:
+
+```text
+/rag filter name guide.md,notes.md
+/rag filter category code
+/rag filter clear
+```
+
+Only chunks matching the active filter are considered before semantic similarity ranking. If no indexed chunk matches, SensAI reports that the active filter has no matching chunks. With no active filter, RAG keeps its normal retrieval behavior.
+
 ### Example RAG workflow
 
 Start the application, then index a document and enable RAG mode:
