@@ -42,6 +42,7 @@ class DocumentChunk:
     end_char: int
     text: str
     language: str | None = None
+    source_type: str = "document"
     start_line: int = 1
     end_line: int = 1
 
@@ -95,6 +96,7 @@ class DocumentChunker:
                     end_char=chunk_end,
                     text=document.text[chunk_start:chunk_end],
                     language=document.language,
+                    source_type=document.source_type,
                     start_line=self._line_number(document.text, chunk_start),
                     end_line=self._end_line_number(document.text, chunk_start, chunk_end),
                 )

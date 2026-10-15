@@ -10,7 +10,7 @@ from rag.context import (
 )
 from rag.embeddings import EmbeddingError
 from rag.ingestion import DocumentIngestionError, DocumentIngestor
-from rag.storage import VectorStoreError
+from rag.storage import MetadataFilter, VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -92,6 +92,7 @@ def cli(
     rag_context_provider: RAGContextProvider | None = None,
 ) -> None:
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    metadata_filter: MetadataFilter | None = None
 
     client = OllamaHTTPClient(model=model)
     registry = registry if registry is not None else default_registry()
@@ -108,6 +109,10 @@ def cli(
             if user_input.lower() in ["exit", "quit"]:
                 break
             if not user_input.strip():
+                continue
+
+            if user_input.startswith("/rag filter"):
+                metadata_filter = _handle_rag_filter_command(user_input, metadata_filter)
                 continue
 
             if user_input.startswith("/rag"):
@@ -128,8 +133,13 @@ def cli(
             # normal document-grounded behavior.
             if rag_enabled and not tools:
                 try:
-                    prepared_context = rag_context_provider.prepare(user_input)
+                    if metadata_filter is None:
+                        prepared_context = rag_context_provider.prepare(user_input)
+                    else:
+                        prepared_context = rag_context_provider.prepare(user_input, metadata_filter)
                     rag_system_message = prepared_context.system_message
+                    if metadata_filter and not prepared_context.results:
+                        print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
                     del messages[turn_start:]
                     print(f"\nRAG Error: {error}")
@@ -228,3 +238,32 @@ def _handle_rag_command(user_input: str, rag_enabled: bool) -> bool:
         return False
     print(f"RAG mode is {'enabled' if rag_enabled else 'disabled'}.")
     return rag_enabled
+
+
+def _handle_rag_filter_command(
+    user_input: str,
+    current_filter: MetadataFilter | None,
+) -> MetadataFilter | None:
+    """Set or clear the metadata restriction used by subsequent RAG questions."""
+    _, _, arguments = user_input.partition("/rag filter")
+    option, _, value = arguments.strip().partition(" ")
+    values = tuple(item.strip() for item in value.split(",") if item.strip())
+    if option == "clear" and not value.strip():
+        print("RAG metadata filter cleared.")
+        return None
+    if option == "name" and values:
+        metadata_filter = MetadataFilter(source_filenames=values)
+        print(f"RAG filter set to source name: {', '.join(values)}")
+        return metadata_filter
+    if option == "category" and values:
+        allowed_categories = {"document", "code", "configuration", "markup"}
+        normalized_values = tuple(item.lower() for item in values)
+        invalid_values = sorted(set(normalized_values) - allowed_categories)
+        if not invalid_values:
+            metadata_filter = MetadataFilter(source_types=normalized_values)
+            print(f"RAG filter set to category: {', '.join(normalized_values)}")
+            return metadata_filter
+        print(f"Unknown category: {', '.join(invalid_values)}")
+        return current_filter
+    print("Usage: /rag filter <name <source>[,<source>...]|category <type>[,<type>...]|clear>")
+    return current_filter

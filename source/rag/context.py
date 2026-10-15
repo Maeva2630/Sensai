@@ -7,7 +7,7 @@ from typing import Sequence
 from .chunking import DocumentChunker
 from .embeddings import EmbeddingGenerator
 from .ingestion import ArchiveIngestionResult, DocumentIngestor, IngestedDocument
-from .storage import DEFAULT_TOP_K, LocalVectorStore, SearchResult
+from .storage import DEFAULT_TOP_K, LocalVectorStore, MetadataFilter, SearchResult
 
 
 DEFAULT_CONTEXT_CHARACTER_BUDGET = 4000
@@ -137,14 +137,25 @@ class RAGContextProvider:
         self.vector_store = vector_store
         self.config = config or RAGContextConfig()
 
-    def prepare(self, query: str) -> PreparedContext:
+    def prepare(
+        self,
+        query: str,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> PreparedContext:
         # Avoid an unnecessary Ollama embedding call when there is no knowledge
         # base. The model still receives the missing-context instruction.
         if self.vector_store.count_chunks() == 0:
             return PreparedContext(self._build_message([]), [])
 
         query_embedding = self.embedding_generator.embed_query(query)
-        results = self.vector_store.search(query_embedding, top_k=self.config.top_k)
+        if metadata_filter is None:
+            results = self.vector_store.search(query_embedding, top_k=self.config.top_k)
+        else:
+            results = self.vector_store.search(
+                query_embedding,
+                top_k=self.config.top_k,
+                metadata_filter=metadata_filter,
+            )
         return PreparedContext(self._build_message(results), results)
 
     def _build_message(self, results: Sequence[SearchResult]) -> str:

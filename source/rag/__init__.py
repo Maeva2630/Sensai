@@ -29,7 +29,14 @@ from .embeddings import (
     EmbeddingResponseError,
     QueryEmbedding,
 )
-from .storage import DEFAULT_TOP_K, InvalidVectorError, LocalVectorStore, SearchResult, VectorStoreError
+from .storage import (
+    DEFAULT_TOP_K,
+    InvalidVectorError,
+    LocalVectorStore,
+    MetadataFilter,
+    SearchResult,
+    VectorStoreError,
+)
 from .context import (
     DEFAULT_CONTEXT_CHARACTER_BUDGET,
     ArchiveIndexingResult,
@@ -72,6 +79,7 @@ __all__ = [
     "DEFAULT_TOP_K",
     "InvalidVectorError",
     "LocalVectorStore",
+    "MetadataFilter",
     "SearchResult",
     "VectorStoreError",
     "DEFAULT_CONTEXT_CHARACTER_BUDGET",

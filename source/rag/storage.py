@@ -34,8 +34,23 @@ class SearchResult:
     text: str
     similarity_score: float
     language: str | None = None
+    source_type: str = "document"
     start_line: int = 1
     end_line: int = 1
+
+
+@dataclass(frozen=True)
+class MetadataFilter:
+    """Optional source metadata restrictions applied before similarity ranking."""
+
+    source_filenames: tuple[str, ...] = ()
+    source_types: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if any(not filename.strip() for filename in self.source_filenames):
+            raise ValueError("Source filename filters cannot be empty.")
+        if any(not source_type.strip() for source_type in self.source_types):
+            raise ValueError("Source type filters cannot be empty.")
 
 
 class LocalVectorStore:
@@ -70,9 +85,9 @@ class LocalVectorStore:
                     """
                     INSERT OR IGNORE INTO chunks (
                         chunk_id, document_id, source_filename, chunk_index,
-                        start_char, end_char, start_line, end_line, language, text, embedding_json,
+                        start_char, end_char, start_line, end_line, language, source_type, text, embedding_json,
                         embedding_dimension, embedding_model
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.chunk.chunk_id,
@@ -84,6 +99,7 @@ class LocalVectorStore:
                         record.chunk.start_line,
                         record.chunk.end_line,
                         record.chunk.language,
+                        record.chunk.source_type,
                         record.chunk.text,
                         json.dumps(record.vector),
                         len(record.vector),
@@ -93,21 +109,37 @@ class LocalVectorStore:
                 inserted_count += cursor.rowcount
         return inserted_count
 
-    def search(self, query: QueryEmbedding, top_k: int = DEFAULT_TOP_K) -> list[SearchResult]:
+    def search(
+        self,
+        query: QueryEmbedding,
+        top_k: int = DEFAULT_TOP_K,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[SearchResult]:
         """Return the top ``k`` chunks with matching model and vector dimension."""
         if top_k <= 0:
             raise ValueError("top_k must be greater than zero.")
         query_vector = self._validate_vector(query.vector)
 
+        conditions = ["embedding_model = ?", "embedding_dimension = ?"]
+        parameters: list[object] = [query.model, len(query_vector)]
+        if metadata_filter and metadata_filter.source_filenames:
+            placeholders = ", ".join("?" for _ in metadata_filter.source_filenames)
+            conditions.append(f"source_filename IN ({placeholders})")
+            parameters.extend(metadata_filter.source_filenames)
+        if metadata_filter and metadata_filter.source_types:
+            placeholders = ", ".join("?" for _ in metadata_filter.source_types)
+            conditions.append(f"source_type IN ({placeholders})")
+            parameters.extend(metadata_filter.source_types)
+
         with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT document_id, chunk_id, source_filename, chunk_index, start_line, end_line,
-                       language, text, embedding_json
+                       language, source_type, text, embedding_json
                 FROM chunks
-                WHERE embedding_model = ? AND embedding_dimension = ?
-                """,
-                (query.model, len(query_vector)),
+                WHERE """
+                + " AND ".join(conditions),
+                parameters,
             ).fetchall()
 
         results = [
@@ -119,6 +151,7 @@ class LocalVectorStore:
                 text=row["text"],
                 similarity_score=self._cosine_similarity(query_vector, self._decode_vector(row["embedding_json"])),
                 language=row["language"],
+                source_type=row["source_type"] or "document",
                 start_line=row["start_line"] or 1,
                 end_line=row["end_line"] or 1,
             )
@@ -145,6 +178,7 @@ class LocalVectorStore:
                         start_line INTEGER NOT NULL DEFAULT 1,
                         end_line INTEGER NOT NULL DEFAULT 1,
                         language TEXT,
+                        source_type TEXT NOT NULL DEFAULT 'document',
                         text TEXT NOT NULL,
                     embedding_json TEXT NOT NULL,
                     embedding_dimension INTEGER NOT NULL,
@@ -159,6 +193,7 @@ class LocalVectorStore:
                 ("start_line", "INTEGER NOT NULL DEFAULT 1"),
                 ("end_line", "INTEGER NOT NULL DEFAULT 1"),
                 ("language", "TEXT"),
+                ("source_type", "TEXT NOT NULL DEFAULT 'document'"),
             ):
                 if column not in columns:
                     connection.execute(f"ALTER TABLE chunks ADD COLUMN {column} {definition}")
