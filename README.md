@@ -43,13 +43,13 @@ The application starts an interactive chat connected to the local Ollama API at 
 
 ### Ingest a document for RAG
 
-While the application is running, use the following command to validate, chunk, embed, and index a local text or Markdown document:
+While the application is running, use the following command to validate, chunk, embed, and index a local document:
 
 ```text
 /ingest path/to/document.md
 ```
 
-The command supports UTF-8 encoded documents and source files. Supported extensions include `.txt`, `.md`, `.py`, `.c`, `.h`, `.cpp`, `.hpp`, `.js`, `.ts`, `.java`, `.go`, `.rs`, `.html`, `.css`, `.xml`, `.svg`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.sql`, and `.sh`. SensAI reads these files as text only: it never executes, imports, renders, or interprets their contents. The command validates the path, file type, encoding, and content, then stores its chunks and embeddings in the local RAG database. Enter `exit` or `quit` to leave the application.
+The command supports UTF-8 encoded documents and source files, as well as text-based PDFs. Supported extensions include `.txt`, `.md`, `.pdf`, `.py`, `.c`, `.h`, `.cpp`, `.hpp`, `.js`, `.ts`, `.java`, `.go`, `.rs`, `.html`, `.css`, `.xml`, `.svg`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.sql`, and `.sh`. PDF extraction uses the `pypdf` dependency installed from `requirements.txt`; it extracts native PDF text only. Scanned or image-only PDFs require OCR and are not supported yet. SensAI reads text and source files as text only: it never executes, imports, renders, or interprets their contents. The command validates the path, file type, encoding, and content, then stores its chunks and embeddings in the local RAG database. Enter `exit` or `quit` to leave the application.
 
 ### Use documents in the chat
 
