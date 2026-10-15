@@ -11,6 +11,7 @@ from rag.ingestion import (
     DocumentDecodingError,
     DocumentIngestor,
     DocumentNotFoundError,
+    DOCXTextExtractionError,
     EmptyDocumentError,
     PDFTextExtractionError,
     UnsupportedDocumentTypeError,
@@ -91,12 +92,12 @@ class TestDocumentIngestor(unittest.TestCase):
             self.ingestor.ingest(self.directory / "missing.md")
 
     def test_unsupported_document_type_raises_clear_error(self):
-        document_path = self._write_file("report.docx", "Not a real Word document")
+        document_path = self._write_file("report.doc", "Not a real Word document")
 
         with self.assertRaises(UnsupportedDocumentTypeError) as context:
             self.ingestor.ingest(document_path)
 
-        self.assertIn(".docx", str(context.exception))
+        self.assertIn(".doc", str(context.exception))
         self.assertIn(".txt", str(context.exception))
 
     @patch.object(DocumentIngestor, "_load_pdf_reader")
@@ -156,6 +157,62 @@ class TestDocumentIngestor(unittest.TestCase):
             self.ingestor.ingest(document_path)
 
         self.assertIn("corrupted or invalid", str(context.exception))
+
+    @patch.object(DocumentIngestor, "_load_docx_document")
+    def test_ingests_docx_paragraphs_and_headings_in_order(self, mock_document_loader):
+        document_path = self.directory / "guide.docx"
+        document_path.write_bytes(b"not-used-by-mock")
+
+        class FakeParagraph:
+            def __init__(self, text):
+                self.text = text
+
+        class FakeDocument:
+            paragraphs = [
+                FakeParagraph("Getting started"),
+                FakeParagraph("Install SensAI locally."),
+                FakeParagraph("Ask a question."),
+            ]
+
+        mock_document_loader.return_value = lambda path: FakeDocument()
+
+        document = self.ingestor.ingest(document_path)
+
+        self.assertEqual(
+            document.text,
+            "Getting started\nInstall SensAI locally.\nAsk a question.",
+        )
+        self.assertEqual(document.source_extension, ".docx")
+        self.assertEqual(document.source_type, "document")
+        self.assertEqual(document.language, "docx")
+
+    @patch.object(DocumentIngestor, "_load_docx_document")
+    def test_empty_docx_reports_a_clear_error(self, mock_document_loader):
+        document_path = self.directory / "empty.docx"
+        document_path.write_bytes(b"not-used-by-mock")
+
+        class EmptyDocument:
+            paragraphs = []
+
+        mock_document_loader.return_value = lambda path: EmptyDocument()
+
+        with self.assertRaises(DOCXTextExtractionError) as context:
+            self.ingestor.ingest(document_path)
+
+        self.assertIn("no extractable paragraph text", str(context.exception))
+
+    @patch.object(DocumentIngestor, "_load_docx_document")
+    def test_corrupted_or_protected_docx_reports_a_clear_error(self, mock_document_loader):
+        document_path = self.directory / "protected.docx"
+        document_path.write_bytes(b"not-used-by-mock")
+        mock_document_loader.return_value = lambda path: (_ for _ in ()).throw(
+            ValueError("unreadable package")
+        )
+
+        with self.assertRaises(DOCXTextExtractionError) as context:
+            self.ingestor.ingest(document_path)
+
+        self.assertIn("corrupted, encrypted, or protected", str(context.exception))
 
     def test_empty_document_raises_clear_error(self):
         document_path = self._write_file("empty.txt", " \n\t ")
