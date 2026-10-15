@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
@@ -14,6 +15,7 @@ from rag.ingestion import (
     DOCXTextExtractionError,
     EmptyDocumentError,
     PDFTextExtractionError,
+    UnsafeArchiveError,
     UnsupportedDocumentTypeError,
 )
 
@@ -30,6 +32,13 @@ class TestDocumentIngestor(unittest.TestCase):
     def _write_file(self, name: str, content: str, encoding: str = "utf-8") -> Path:
         path = self.directory / name
         path.write_text(content, encoding=encoding)
+        return path
+
+    def _write_archive(self, name: str, entries: dict[str, str]) -> Path:
+        path = self.directory / name
+        with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
+            for entry_name, content in entries.items():
+                archive.writestr(entry_name, content)
         return path
 
     def test_ingests_text_file_with_normalized_content_and_metadata(self):
@@ -213,6 +222,64 @@ class TestDocumentIngestor(unittest.TestCase):
             self.ingestor.ingest(document_path)
 
         self.assertIn("corrupted, encrypted, or protected", str(context.exception))
+
+    def test_ingests_supported_archive_entries_with_archive_metadata(self):
+        archive_path = self._write_archive(
+            "project.zip",
+            {
+                "docs/guide.md": "# Guide\nUseful documentation.",
+                "src/main.py": "print('hello')\n",
+            },
+        )
+
+        result = self.ingestor.ingest_archive(archive_path)
+
+        self.assertEqual(len(result.documents), 2)
+        self.assertEqual(result.skipped_entries, [])
+        self.assertEqual(result.failed_entries, [])
+        first_document = result.documents[0]
+        self.assertEqual(first_document.source_filename, "project.zip::docs/guide.md")
+        self.assertEqual(first_document.archive_filename, "project.zip")
+        self.assertEqual(first_document.archive_entry_path, "docs/guide.md")
+        self.assertTrue(first_document.source_path.endswith("project.zip::docs/guide.md"))
+
+    def test_archive_skips_unsupported_entries_and_continues_after_failed_extraction(self):
+        archive_path = self._write_archive(
+            "mixed.zip",
+            {
+                "useful.txt": "Useful text",
+                "unsupported.exe": "binary",
+                "empty.md": " \n\t",
+            },
+        )
+
+        result = self.ingestor.ingest_archive(archive_path)
+
+        self.assertEqual([document.archive_entry_path for document in result.documents], ["useful.txt"])
+        self.assertEqual(result.skipped_entries, ["unsupported.exe"])
+        self.assertEqual(len(result.failed_entries), 1)
+        self.assertEqual(result.failed_entries[0].entry_path, "empty.md")
+        self.assertIn("empty", result.failed_entries[0].reason)
+
+    def test_archive_rejects_path_traversal_before_processing_entries(self):
+        archive_path = self._write_archive("unsafe.zip", {"../../sensitive.txt": "Do not read"})
+
+        with self.assertRaises(UnsafeArchiveError) as context:
+            self.ingestor.ingest_archive(archive_path)
+
+        self.assertIn("unsafe path", str(context.exception))
+
+    def test_archive_rejects_too_many_files(self):
+        archive_path = self._write_archive(
+            "many-files.zip",
+            {"one.txt": "one", "two.txt": "two"},
+        )
+
+        with patch.object(self.ingestor, "MAX_ARCHIVE_FILE_COUNT", 1):
+            with self.assertRaises(UnsafeArchiveError) as context:
+                self.ingestor.ingest_archive(archive_path)
+
+        self.assertIn("more than 1 files", str(context.exception))
 
     def test_empty_document_raises_clear_error(self):
         document_path = self._write_file("empty.txt", " \n\t ")

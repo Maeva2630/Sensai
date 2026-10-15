@@ -18,8 +18,8 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
 )
-from rag.context import IndexingResult, PreparedContext
-from rag.ingestion import IngestedDocument
+from rag.context import ArchiveIndexingResult, IndexingResult, PreparedContext
+from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, IngestedDocument
 from rag.storage import SearchResult
 
 class TestCLIExceptionHandling(unittest.TestCase):
@@ -147,6 +147,31 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertIn("Document indexed: knowledge.txt (2 chunks; 2 new chunks stored).", output)
         self.assertIn("Document indexed: knowledge.txt (2 chunks; 0 new chunks stored).", output)
         mock_client_cls.return_value.stream_message.assert_not_called()
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_reports_archive_summary(self, mock_client_cls):
+        document = IngestedDocument("document-id", "project.zip::guide.md", "archive::guide.md", "Guide", 5)
+        archive = ArchiveIngestionResult(
+            "project.zip",
+            "/tmp/project.zip",
+            [document],
+            ["image.png"],
+            [ArchiveEntryFailure("broken.pdf", "Could not read PDF")],
+        )
+        indexer = MagicMock()
+        indexer.index_document.return_value = ArchiveIndexingResult(
+            archive,
+            [IndexingResult(document, chunk_count=1, inserted_chunk_count=1)],
+        )
+        captured_output = io.StringIO()
+        with patch("builtins.input", side_effect=["/ingest project.zip", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_indexer=indexer)
+
+        output = captured_output.getvalue()
+        self.assertIn("Archive indexed: project.zip (1 files indexed; 1 chunks; 1 new chunks stored).", output)
+        self.assertIn("Indexed files: project.zip::guide.md", output)
+        self.assertIn("Skipped unsupported files: image.png", output)
+        self.assertIn("Failed to extract broken.pdf: Could not read PDF", output)
 
 class AddTool(Tool):
     name = "add"
