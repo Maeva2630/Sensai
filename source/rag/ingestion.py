@@ -30,6 +30,10 @@ class PDFTextExtractionError(DocumentIngestionError):
     """Raised when a PDF cannot provide extractable, native text."""
 
 
+class DOCXTextExtractionError(DocumentIngestionError):
+    """Raised when a DOCX cannot provide readable paragraph text."""
+
+
 @dataclass(frozen=True)
 class IngestedDocument:
     """Normalized document and its source metadata, ready for chunking."""
@@ -70,6 +74,7 @@ class DocumentIngestor:
         (".txt", "document", None),
         (".md", "markup", "markdown"),
         (".pdf", "document", "pdf"),
+        (".docx", "document", "docx"),
         (".py", "code", "python"),
         (".c", "code", "c"),
         (".h", "code", "c/c++ header"),
@@ -97,9 +102,11 @@ class DocumentIngestor:
         self.encoding = encoding
         self._extractors: Dict[str, ExtractorRegistration] = {}
         for extension, source_type, language in self._DEFAULT_FORMATS:
-            extractor = (
-                self._extract_pdf_file if extension == ".pdf" else self._extract_text_file
-            )
+            extractor = self._extract_text_file
+            if extension == ".pdf":
+                extractor = self._extract_pdf_file
+            elif extension == ".docx":
+                extractor = self._extract_docx_file
             self.register_extractor(
                 extension,
                 extractor,
@@ -217,6 +224,37 @@ class DocumentIngestor:
             raise PDFTextExtractionError(
                 f"PDF '{path.name}' contains no extractable text. "
                 "It may be scanned or image-only; OCR is not yet supported."
+            )
+        return extracted_text
+
+    @staticmethod
+    def _load_docx_document():
+        """Load python-docx only when a Word document is requested."""
+        try:
+            from docx import Document
+        except ImportError as error:
+            raise DOCXTextExtractionError(
+                "DOCX support requires the 'python-docx' package. "
+                "Install the project dependencies and try again."
+            ) from error
+        return Document
+
+    def _extract_docx_file(self, path: Path) -> str:
+        """Return paragraphs and headings in their original document order."""
+        document_factory = self._load_docx_document()
+        try:
+            document = document_factory(path)
+            paragraphs = [paragraph.text for paragraph in document.paragraphs]
+        except Exception as error:
+            raise DOCXTextExtractionError(
+                f"Could not read DOCX '{path.name}'. "
+                "The file may be corrupted, encrypted, or protected."
+            ) from error
+
+        extracted_text = "\n".join(paragraphs)
+        if not extracted_text.strip():
+            raise DOCXTextExtractionError(
+                f"DOCX '{path.name}' contains no extractable paragraph text."
             )
         return extracted_text
 
