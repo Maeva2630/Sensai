@@ -1,8 +1,8 @@
-import unittest
-from unittest.mock import patch, MagicMock
 import io
-import sys
 import os
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
 
 # Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
@@ -14,6 +14,35 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
 )
+
+
+class TestCLIPromptInjection(unittest.TestCase):
+    """Tests for ProfileManager integration and system prompt injection."""
+
+    @patch("builtins.input", side_effect=["exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    @patch("cli.cli.ProfileManager")
+    def test_cli_injects_profile_system_prompt_on_new_session(
+        self, mock_pm_cls, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_pm = MagicMock()
+        mock_pm.build_system_prompt.return_value = "Custom Profile System Prompt"
+        mock_pm_cls.return_value = mock_pm
+
+        mock_sm = MagicMock()
+        mock_sm.load.return_value = None
+        mock_sm_cls.return_value = mock_sm
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        with patch("sys.stdout", io.StringIO()):
+            with self.assertRaises(SystemExit):
+                cli(profile_path="custom_profile.json")  # Harmonisé ici !
+
+        mock_pm_cls.assert_called_once_with(profile_path="custom_profile.json")
+        mock_pm.build_system_prompt.assert_called_once()
 
 
 class TestCLIExceptionHandling(unittest.TestCase):
@@ -122,7 +151,6 @@ class TestCLICommandDispatch(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 cli()
 
-        # save() called at least once for /save (and once more for exit)
         self.assertGreaterEqual(mock_session.save.call_count, 1)
 
     @patch("builtins.input", side_effect=["exit"])

@@ -4,7 +4,7 @@ from utilities.ollama_client import OllamaHTTPClient, OllamaConnectionError, Oll
 from memory.session_manager import SessionManager
 from memory.profile_manager import ProfileManager
 
-def cli(model: str = "llama3.2", session_id: str = None, profile_path: str = "profile.json"):
+def cli(model: str = "llama3.2", session_id: str = None, profile_path: str = None):
     """Launch the CLI application with optional session resumption."""
 
     try:
