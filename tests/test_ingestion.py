@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
@@ -11,6 +12,7 @@ from rag.ingestion import (
     DocumentIngestor,
     DocumentNotFoundError,
     EmptyDocumentError,
+    PDFTextExtractionError,
     UnsupportedDocumentTypeError,
 )
 
@@ -89,13 +91,71 @@ class TestDocumentIngestor(unittest.TestCase):
             self.ingestor.ingest(self.directory / "missing.md")
 
     def test_unsupported_document_type_raises_clear_error(self):
-        document_path = self._write_file("report.pdf", "Not a real PDF")
+        document_path = self._write_file("report.docx", "Not a real Word document")
 
         with self.assertRaises(UnsupportedDocumentTypeError) as context:
             self.ingestor.ingest(document_path)
 
-        self.assertIn(".pdf", str(context.exception))
+        self.assertIn(".docx", str(context.exception))
         self.assertIn(".txt", str(context.exception))
+
+    @patch.object(DocumentIngestor, "_load_pdf_reader")
+    def test_ingests_text_based_pdf_with_document_metadata(self, mock_reader_loader):
+        document_path = self.directory / "guide.pdf"
+        document_path.write_bytes(b"%PDF-not-used-by-mock")
+
+        class FakePage:
+            def extract_text(self):
+                return "PDF native text"
+
+        class FakeReader:
+            def __init__(self, path):
+                self.pages = [FakePage()]
+
+        mock_reader_loader.return_value = FakeReader
+
+        document = self.ingestor.ingest(document_path)
+
+        self.assertEqual(document.text, "PDF native text")
+        self.assertEqual(document.source_extension, ".pdf")
+        self.assertEqual(document.source_type, "document")
+        self.assertEqual(document.language, "pdf")
+
+    @patch.object(DocumentIngestor, "_load_pdf_reader")
+    def test_image_only_pdf_reports_that_ocr_is_not_supported(self, mock_reader_loader):
+        document_path = self.directory / "scan.pdf"
+        document_path.write_bytes(b"%PDF-not-used-by-mock")
+
+        class ImageOnlyPage:
+            def extract_text(self):
+                return None
+
+        class FakeReader:
+            def __init__(self, path):
+                self.pages = [ImageOnlyPage()]
+
+        mock_reader_loader.return_value = FakeReader
+
+        with self.assertRaises(PDFTextExtractionError) as context:
+            self.ingestor.ingest(document_path)
+
+        self.assertIn("OCR is not yet supported", str(context.exception))
+
+    @patch.object(DocumentIngestor, "_load_pdf_reader")
+    def test_corrupted_pdf_reports_a_clear_error(self, mock_reader_loader):
+        document_path = self.directory / "broken.pdf"
+        document_path.write_bytes(b"not-a-pdf")
+
+        class BrokenReader:
+            def __init__(self, path):
+                raise ValueError("invalid PDF")
+
+        mock_reader_loader.return_value = BrokenReader
+
+        with self.assertRaises(PDFTextExtractionError) as context:
+            self.ingestor.ingest(document_path)
+
+        self.assertIn("corrupted or invalid", str(context.exception))
 
     def test_empty_document_raises_clear_error(self):
         document_path = self._write_file("empty.txt", " \n\t ")

@@ -128,7 +128,7 @@ class TestCLIExceptionHandling(unittest.TestCase):
         with patch("sys.stdout", captured_output):
             cli()
 
-        self.assertIn("Usage: /ingest <path-to-.txt-or-.md-file>", captured_output.getvalue())
+        self.assertIn("Usage: /ingest <path-to-document>", captured_output.getvalue())
         mock_client_cls.return_value.stream_message.assert_not_called()
 
     @patch("cli.cli.OllamaHTTPClient")
