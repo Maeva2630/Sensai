@@ -382,6 +382,29 @@ class TestCLIRAGIntegration(unittest.TestCase):
 
         self.assertIn("Assistant: Grounded answer", captured_output.getvalue())
         self.assertIn("Sources: guide.md (chunks: chunk-1)", captured_output.getvalue())
+        self.assertIn("Grounded answer\n\nSources:", captured_output.getvalue())
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_can_hide_source_display_without_disabling_rag(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Grounded answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext(
+            "RAG source context",
+            [SearchResult("doc-1", "chunk-1", "guide.md", 0, "Evidence", 0.95)],
+        )
+        captured_output = io.StringIO()
+
+        with patch("builtins.input", side_effect=["/sources off", "Question", "exit"]), patch(
+            "sys.stdout", captured_output
+        ):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        output = captured_output.getvalue()
+        self.assertIn("Source display disabled.", output)
+        self.assertIn("Assistant: Grounded answer", output)
+        self.assertNotIn("Sources:", output)
 
 if __name__ == "__main__":
     unittest.main()

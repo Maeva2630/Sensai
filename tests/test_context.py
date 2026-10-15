@@ -59,6 +59,7 @@ class TestRAGContextProvider(unittest.TestCase):
 
         self.assertIn("guide.md", prepared.system_message)
         self.assertIn("A useful excerpt about RAG.", prepared.system_message)
+        self.assertIn("Do not include source citations", prepared.system_message)
         self.assertLessEqual(len(prepared.system_message), 600)
         embedding_generator.embed_query.assert_called_once_with("Question")
         vector_store.search.assert_called_once_with(embedding_generator.embed_query.return_value, top_k=2)
