@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,15 @@ from rag.embeddings import EmbeddedChunk, QueryEmbedding
 from rag.storage import InvalidVectorError, LocalVectorStore
 
 
-def embedded_chunk(chunk_id: str, vector: tuple[float, ...], text: str = "Document passage") -> EmbeddedChunk:
+def embedded_chunk(
+    chunk_id: str,
+    vector: tuple[float, ...],
+    text: str = "Document passage",
+    *,
+    language: str | None = None,
+    start_line: int = 1,
+    end_line: int = 1,
+) -> EmbeddedChunk:
     chunk = DocumentChunk(
         chunk_id=chunk_id,
         document_id="document-1",
@@ -20,6 +29,9 @@ def embedded_chunk(chunk_id: str, vector: tuple[float, ...], text: str = "Docume
         start_char=0,
         end_char=len(text),
         text=text,
+        language=language,
+        start_line=start_line,
+        end_line=end_line,
     )
     return EmbeddedChunk(chunk=chunk, vector=vector, model="test-embed")
 
@@ -34,7 +46,18 @@ class TestLocalVectorStore(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def test_chunks_remain_available_after_reopening_database(self):
-        self.store.store_chunks([embedded_chunk("chunk-1", (1.0, 0.0), "Persistent knowledge")])
+        self.store.store_chunks(
+            [
+                embedded_chunk(
+                    "chunk-1",
+                    (1.0, 0.0),
+                    "Persistent knowledge",
+                    language="python",
+                    start_line=4,
+                    end_line=8,
+                )
+            ]
+        )
 
         reopened_store = LocalVectorStore(self.database_path)
         results = reopened_store.search(QueryEmbedding("Question", (1.0, 0.0), "test-embed"))
@@ -43,6 +66,8 @@ class TestLocalVectorStore(unittest.TestCase):
         self.assertEqual(results[0].chunk_id, "chunk-1")
         self.assertEqual(results[0].source_filename, "guide.md")
         self.assertEqual(results[0].text, "Persistent knowledge")
+        self.assertEqual(results[0].language, "python")
+        self.assertEqual((results[0].start_line, results[0].end_line), (4, 8))
 
     def test_search_orders_results_by_cosine_similarity(self):
         self.store.store_chunks(
@@ -90,6 +115,33 @@ class TestLocalVectorStore(unittest.TestCase):
     def test_rejects_invalid_top_k(self):
         with self.assertRaises(ValueError):
             self.store.search(QueryEmbedding("Question", (1.0, 0.0), "test-embed"), top_k=0)
+
+    def test_existing_database_is_migrated_with_line_metadata_columns(self):
+        legacy_database_path = Path(self.temporary_directory.name) / "legacy.sqlite3"
+        with sqlite3.connect(legacy_database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    source_filename TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    start_char INTEGER NOT NULL,
+                    end_char INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    embedding_json TEXT NOT NULL,
+                    embedding_dimension INTEGER NOT NULL,
+                    embedding_model TEXT NOT NULL
+                )
+                """
+            )
+
+        LocalVectorStore(legacy_database_path)
+
+        with sqlite3.connect(legacy_database_path) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(chunks)")}
+
+        self.assertTrue({"language", "start_line", "end_line"}.issubset(columns))
 
 
 if __name__ == "__main__":

@@ -9,13 +9,20 @@ from rag.chunking import ChunkingConfig, DocumentChunker
 from rag.ingestion import IngestedDocument
 
 
-def make_document(text: str) -> IngestedDocument:
+def make_document(
+    text: str,
+    *,
+    source_type: str = "document",
+    language: str | None = None,
+) -> IngestedDocument:
     return IngestedDocument(
         document_id="document-id",
         source_filename="guide.md",
         source_path=str(Path("/tmp/guide.md")),
         text=text,
         character_count=len(text),
+        source_type=source_type,
+        language=language,
     )
 
 
@@ -82,6 +89,71 @@ class TestDocumentChunker(unittest.TestCase):
     def test_invalid_configuration_is_rejected(self):
         with self.assertRaises(ValueError):
             ChunkingConfig(chunk_size=100, chunk_overlap=100)
+
+    def test_python_keeps_small_top_level_functions_and_classes_together(self):
+        document = make_document(
+            "class Greeter:\n"
+            "    def hello(self):\n"
+            "        return 'hello'\n"
+            "\n"
+            "def add(left, right):\n"
+            "    return left + right\n",
+            source_type="code",
+            language="python",
+        )
+
+        chunks = DocumentChunker(ChunkingConfig(chunk_size=90, chunk_overlap=20)).chunk(document)
+
+        self.assertTrue(any("class Greeter:" in chunk.text and "return 'hello'" in chunk.text for chunk in chunks))
+        self.assertTrue(any("def add(left, right):" in chunk.text and "return left + right" in chunk.text for chunk in chunks))
+        self.assertTrue(all(chunk.language == "python" for chunk in chunks))
+        self.assertEqual((chunks[0].start_line, chunks[0].end_line), (1, 3))
+
+    def test_cpp_xml_and_configuration_use_readable_line_boundaries(self):
+        cpp_document = make_document(
+            "int add(int left, int right) {\n"
+            "  return left + right;\n"
+            "}\n"
+            "\n"
+            "int subtract(int left, int right) {\n"
+            "  return left - right;\n"
+            "}\n",
+            source_type="code",
+            language="c++",
+        )
+        xml_document = make_document(
+            "<svg>\n<rect width=\"10\" />\n<circle r=\"5\" />\n</svg>",
+            source_type="markup",
+            language="svg",
+        )
+        config_document = make_document(
+            "[database]\nhost = localhost\n\n[cache]\nenabled = true",
+            source_type="configuration",
+            language="ini",
+        )
+        chunker = DocumentChunker(ChunkingConfig(chunk_size=55, chunk_overlap=10))
+
+        cpp_chunks = chunker.chunk(cpp_document)
+        xml_chunks = chunker.chunk(xml_document)
+        config_chunks = chunker.chunk(config_document)
+
+        self.assertTrue(any("int add" in chunk.text and "return left + right" in chunk.text for chunk in cpp_chunks))
+        self.assertTrue(any("<rect" in chunk.text for chunk in xml_chunks))
+        self.assertTrue(any("[database]" in chunk.text and "host = localhost" in chunk.text for chunk in config_chunks))
+        self.assertTrue(all(chunk.start_line <= chunk.end_line for chunk in cpp_chunks + xml_chunks + config_chunks))
+
+    def test_long_function_respects_chunk_size_and_keeps_line_metadata(self):
+        document = make_document(
+            "def long_function():\n" + "    value = value + 1\n" * 20,
+            source_type="code",
+            language="python",
+        )
+
+        chunks = DocumentChunker(ChunkingConfig(chunk_size=80, chunk_overlap=20)).chunk(document)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk.text) <= 80 for chunk in chunks))
+        self.assertTrue(all(chunk.start_line <= chunk.end_line for chunk in chunks))
 
 
 if __name__ == "__main__":
