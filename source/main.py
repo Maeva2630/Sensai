@@ -17,10 +17,16 @@ def main():
         default="llama3.2",
         help="Ollama model to use (default: llama3.2)"
     )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        default="profile.json",
+        help="Profile path to use (default: profile.json)"
+    )
 
     args = parser.parse_args()
 
-    cli(model=args.model, session_id=args.session)
+    cli(model=args.model, session_id=args.session, profile_path=args.profile)
 
 if __name__ == "__main__":
     main()
