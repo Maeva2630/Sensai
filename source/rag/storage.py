@@ -33,6 +33,9 @@ class SearchResult:
     chunk_index: int
     text: str
     similarity_score: float
+    language: str | None = None
+    start_line: int = 1
+    end_line: int = 1
 
 
 class LocalVectorStore:
@@ -67,9 +70,9 @@ class LocalVectorStore:
                     """
                     INSERT OR IGNORE INTO chunks (
                         chunk_id, document_id, source_filename, chunk_index,
-                        start_char, end_char, text, embedding_json,
+                        start_char, end_char, start_line, end_line, language, text, embedding_json,
                         embedding_dimension, embedding_model
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.chunk.chunk_id,
@@ -78,6 +81,9 @@ class LocalVectorStore:
                         record.chunk.chunk_index,
                         record.chunk.start_char,
                         record.chunk.end_char,
+                        record.chunk.start_line,
+                        record.chunk.end_line,
+                        record.chunk.language,
                         record.chunk.text,
                         json.dumps(record.vector),
                         len(record.vector),
@@ -96,7 +102,8 @@ class LocalVectorStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT document_id, chunk_id, source_filename, chunk_index, text, embedding_json
+                SELECT document_id, chunk_id, source_filename, chunk_index, start_line, end_line,
+                       language, text, embedding_json
                 FROM chunks
                 WHERE embedding_model = ? AND embedding_dimension = ?
                 """,
@@ -111,6 +118,9 @@ class LocalVectorStore:
                 chunk_index=row["chunk_index"],
                 text=row["text"],
                 similarity_score=self._cosine_similarity(query_vector, self._decode_vector(row["embedding_json"])),
+                language=row["language"],
+                start_line=row["start_line"] or 1,
+                end_line=row["end_line"] or 1,
             )
             for row in rows
         ]
@@ -126,19 +136,32 @@ class LocalVectorStore:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chunks (
-                    chunk_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    source_filename TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    start_char INTEGER NOT NULL,
-                    end_char INTEGER NOT NULL,
-                    text TEXT NOT NULL,
+                        chunk_id TEXT PRIMARY KEY,
+                        document_id TEXT NOT NULL,
+                        source_filename TEXT NOT NULL,
+                        chunk_index INTEGER NOT NULL,
+                        start_char INTEGER NOT NULL,
+                        end_char INTEGER NOT NULL,
+                        start_line INTEGER NOT NULL DEFAULT 1,
+                        end_line INTEGER NOT NULL DEFAULT 1,
+                        language TEXT,
+                        text TEXT NOT NULL,
                     embedding_json TEXT NOT NULL,
                     embedding_dimension INTEGER NOT NULL,
                     embedding_model TEXT NOT NULL
                 )
                 """
             )
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(chunks)").fetchall()
+            }
+            for column, definition in (
+                ("start_line", "INTEGER NOT NULL DEFAULT 1"),
+                ("end_line", "INTEGER NOT NULL DEFAULT 1"),
+                ("language", "TEXT"),
+            ):
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE chunks ADD COLUMN {column} {definition}")
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_chunks_embedding_lookup
