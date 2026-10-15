@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
-from cli.cli import cli, MAX_TOOL_ITERATIONS
+from cli.cli import _handle_rag_filter_command, cli, MAX_TOOL_ITERATIONS
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -172,6 +172,18 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertIn("Indexed files: project.zip::guide.md", output)
         self.assertIn("Skipped unsupported files: image.png", output)
         self.assertIn("Failed to extract broken.pdf: Could not read PDF", output)
+
+    def test_rag_filter_commands_set_and_clear_metadata_restrictions(self):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            metadata_filter = _handle_rag_filter_command("/rag filter name guide.md,notes.md", None)
+            category_filter = _handle_rag_filter_command("/rag filter category code", metadata_filter)
+            cleared_filter = _handle_rag_filter_command("/rag filter clear", category_filter)
+
+        self.assertEqual(metadata_filter.source_filenames, ("guide.md", "notes.md"))
+        self.assertEqual(category_filter.source_types, ("code",))
+        self.assertIsNone(cleared_filter)
+        self.assertIn("RAG metadata filter cleared.", captured_output.getvalue())
 
 class AddTool(Tool):
     name = "add"

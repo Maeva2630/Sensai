@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from rag.chunking import DocumentChunk
 from rag.embeddings import EmbeddedChunk, QueryEmbedding
-from rag.storage import InvalidVectorError, LocalVectorStore
+from rag.storage import InvalidVectorError, LocalVectorStore, MetadataFilter
 
 
 def embedded_chunk(
@@ -20,16 +20,19 @@ def embedded_chunk(
     language: str | None = None,
     start_line: int = 1,
     end_line: int = 1,
+    source_type: str = "document",
+    source_filename: str = "guide.md",
 ) -> EmbeddedChunk:
     chunk = DocumentChunk(
         chunk_id=chunk_id,
         document_id="document-1",
-        source_filename="guide.md",
+        source_filename=source_filename,
         chunk_index=0,
         start_char=0,
         end_char=len(text),
         text=text,
         language=language,
+        source_type=source_type,
         start_line=start_line,
         end_line=end_line,
     )
@@ -115,6 +118,29 @@ class TestLocalVectorStore(unittest.TestCase):
     def test_rejects_invalid_top_k(self):
         with self.assertRaises(ValueError):
             self.store.search(QueryEmbedding("Question", (1.0, 0.0), "test-embed"), top_k=0)
+
+    def test_search_filters_chunks_by_source_filename_or_category(self):
+        self.store.store_chunks(
+            [
+                embedded_chunk("guide", (1.0, 0.0), "Guide", source_type="document"),
+                embedded_chunk(
+                    "code",
+                    (1.0, 0.0),
+                    "Code",
+                    source_type="code",
+                    source_filename="main.py",
+                ),
+            ]
+        )
+        query = QueryEmbedding("Question", (1.0, 0.0), "test-embed")
+
+        by_name = self.store.search(query, metadata_filter=MetadataFilter(source_filenames=("guide.md",)))
+        by_category = self.store.search(query, metadata_filter=MetadataFilter(source_types=("code",)))
+        no_match = self.store.search(query, metadata_filter=MetadataFilter(source_types=("markup",)))
+
+        self.assertEqual([result.chunk_id for result in by_name], ["guide"])
+        self.assertEqual([result.chunk_id for result in by_category], ["code"])
+        self.assertEqual(no_match, [])
 
     def test_existing_database_is_migrated_with_line_metadata_columns(self):
         legacy_database_path = Path(self.temporary_directory.name) / "legacy.sqlite3"

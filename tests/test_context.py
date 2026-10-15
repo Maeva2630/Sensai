@@ -19,6 +19,7 @@ from rag.chunking import DocumentChunker
 from rag.embeddings import EmbeddedChunk, QueryEmbedding
 from rag.ingestion import ArchiveIngestionResult, DocumentIngestor, IngestedDocument
 from rag.storage import LocalVectorStore, SearchResult
+from rag.storage import MetadataFilter
 
 
 class TestRAGContextProvider(unittest.TestCase):
@@ -73,6 +74,25 @@ class TestRAGContextProvider(unittest.TestCase):
         self.assertEqual(prepared.results, [])
         self.assertIn("No relevant indexed excerpts", prepared.system_message)
         embedding_generator.embed_query.assert_not_called()
+
+    def test_metadata_filter_is_forwarded_to_vector_search(self):
+        embedding_generator = MagicMock()
+        embedding_generator.embed_query.return_value = QueryEmbedding("Question", (1.0, 0.0), "embed-model")
+        vector_store = MagicMock()
+        vector_store.count_chunks.return_value = 1
+        vector_store.search.return_value = []
+        metadata_filter = MetadataFilter(source_types=("code",))
+        provider = RAGContextProvider(embedding_generator, vector_store)
+
+        prepared = provider.prepare("Question", metadata_filter)
+
+        self.assertEqual(prepared.results, [])
+        self.assertIn("No relevant indexed excerpts", prepared.system_message)
+        vector_store.search.assert_called_once_with(
+            embedding_generator.embed_query.return_value,
+            top_k=3,
+            metadata_filter=metadata_filter,
+        )
 
 
 class TestRAGIndexer(unittest.TestCase):
