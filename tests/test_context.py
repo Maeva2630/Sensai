@@ -95,6 +95,56 @@ class TestRAGContextProvider(unittest.TestCase):
             metadata_filter=metadata_filter,
         )
 
+    def test_relevance_threshold_keeps_only_sufficiently_similar_chunks(self):
+        embedding_generator = MagicMock()
+        embedding_generator.embed_query.return_value = QueryEmbedding("Question", (1.0, 0.0), "embed-model")
+        vector_store = MagicMock()
+        vector_store.count_chunks.return_value = 2
+        high_score = SearchResult("doc-1", "high", "guide.md", 0, "Useful evidence", 0.81)
+        low_score = SearchResult("doc-2", "low", "notes.md", 0, "Unrelated evidence", 0.21)
+        vector_store.search.return_value = [high_score, low_score]
+        provider = RAGContextProvider(
+            embedding_generator,
+            vector_store,
+            RAGContextConfig(relevance_threshold=0.50),
+        )
+
+        with self.assertLogs("rag.context", level="INFO") as logs:
+            prepared = provider.prepare("Question")
+
+        self.assertEqual(prepared.results, [high_score])
+        self.assertEqual(prepared.rejected_results, [low_score])
+        self.assertIn("Useful evidence", prepared.system_message)
+        self.assertNotIn("Unrelated evidence", prepared.system_message)
+        self.assertIn("selected [guide.md:high=0.810]", logs.output[0])
+        self.assertIn("rejected [notes.md:low=0.210]", logs.output[0])
+
+    def test_relevance_threshold_builds_no_document_context_when_every_chunk_is_rejected(self):
+        embedding_generator = MagicMock()
+        embedding_generator.embed_query.return_value = QueryEmbedding("Question", (1.0, 0.0), "embed-model")
+        vector_store = MagicMock()
+        vector_store.count_chunks.return_value = 1
+        low_score = SearchResult("doc-1", "low", "guide.md", 0, "Weak match", 0.10)
+        vector_store.search.return_value = [low_score]
+        provider = RAGContextProvider(
+            embedding_generator,
+            vector_store,
+            RAGContextConfig(relevance_threshold=0.50),
+        )
+
+        prepared = provider.prepare("Question")
+
+        self.assertEqual(prepared.results, [])
+        self.assertEqual(prepared.rejected_results, [low_score])
+        self.assertIn("No relevant indexed excerpts", prepared.system_message)
+        self.assertNotIn("Weak match", prepared.system_message)
+
+    def test_relevance_threshold_configuration_is_validated(self):
+        with self.assertRaises(ValueError):
+            RAGContextConfig(relevance_threshold=1.1)
+        with self.assertRaises(ValueError):
+            RAGContextConfig(relevance_threshold=float("nan"))
+
 
 class TestRAGIndexer(unittest.TestCase):
     def test_indexes_document_through_every_rag_stage(self):
