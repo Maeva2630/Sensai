@@ -111,7 +111,7 @@ The chat model and the embedding model are separate: a dedicated embedding model
 
 ### RAG context configuration
 
-By default, RAG retrieves the top three matching chunks and keeps the complete context message under 4,000 characters. Adjust these settings through `RAGContextConfig(top_k=..., max_context_characters=...)` when creating a `RAGContextProvider`.
+By default, RAG retrieves the top three matching chunks, rejects chunks with a cosine similarity score below `0.35`, and keeps the complete context message under 4,000 characters. Adjust these settings through `RAGContextConfig(top_k=..., max_context_characters=..., relevance_threshold=...)` when creating a `RAGContextProvider`. The threshold must be between `-1` and `1`; increase it to be more selective, or decrease it when relevant excerpts are being rejected too often.
 
 ### Local RAG storage and search
 
