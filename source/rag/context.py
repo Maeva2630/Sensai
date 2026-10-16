@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -11,6 +13,9 @@ from .storage import DEFAULT_TOP_K, LocalVectorStore, MetadataFilter, SearchResu
 
 
 DEFAULT_CONTEXT_CHARACTER_BUDGET = 4000
+DEFAULT_RELEVANCE_THRESHOLD = 0.35
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -19,12 +24,15 @@ class RAGContextConfig:
 
     top_k: int = DEFAULT_TOP_K
     max_context_characters: int = DEFAULT_CONTEXT_CHARACTER_BUDGET
+    relevance_threshold: float = DEFAULT_RELEVANCE_THRESHOLD
 
     def __post_init__(self) -> None:
         if self.top_k <= 0:
             raise ValueError("top_k must be greater than zero.")
         if self.max_context_characters < 300:
             raise ValueError("max_context_characters must be at least 300.")
+        if not math.isfinite(self.relevance_threshold) or not -1.0 <= self.relevance_threshold <= 1.0:
+            raise ValueError("relevance_threshold must be a finite value between -1 and 1.")
 
 
 @dataclass(frozen=True)
@@ -58,6 +66,7 @@ class PreparedContext:
 
     system_message: str
     results: Sequence[SearchResult]
+    rejected_results: Sequence[SearchResult] = ()
 
 
 def format_source_attribution(results: Sequence[SearchResult]) -> str:
@@ -150,14 +159,51 @@ class RAGContextProvider:
 
         query_embedding = self.embedding_generator.embed_query(query)
         if metadata_filter is None:
-            results = self.vector_store.search(query_embedding, top_k=self.config.top_k)
+            retrieved_results = self.vector_store.search(query_embedding, top_k=self.config.top_k)
         else:
-            results = self.vector_store.search(
+            retrieved_results = self.vector_store.search(
                 query_embedding,
                 top_k=self.config.top_k,
                 metadata_filter=metadata_filter,
             )
-        return PreparedContext(self._build_message(results), results)
+        results, rejected_results = self._filter_by_relevance(retrieved_results)
+        self._log_retrieval(results, rejected_results)
+        return PreparedContext(self._build_message(results), results, rejected_results)
+
+    def _filter_by_relevance(
+        self,
+        results: Sequence[SearchResult],
+    ) -> tuple[list[SearchResult], list[SearchResult]]:
+        selected_results = [
+            result
+            for result in results
+            if result.similarity_score >= self.config.relevance_threshold
+        ]
+        rejected_results = [
+            result
+            for result in results
+            if result.similarity_score < self.config.relevance_threshold
+        ]
+        return selected_results, rejected_results
+
+    def _log_retrieval(
+        self,
+        selected_results: Sequence[SearchResult],
+        rejected_results: Sequence[SearchResult],
+    ) -> None:
+        """Log score decisions without putting rejected text into the model prompt."""
+        def describe(results: Sequence[SearchResult]) -> str:
+            return ", ".join(
+                f"{result.source_filename}:{result.chunk_id}={result.similarity_score:.3f}"
+                for result in results
+            ) or "none"
+
+        logger.info(
+            "RAG relevance threshold %.3f; selected [%s]; rejected [%s]",
+            self.config.relevance_threshold,
+            describe(selected_results),
+            describe(rejected_results),
+        )
 
     def _build_message(self, results: Sequence[SearchResult]) -> str:
         parts = [self._INSTRUCTIONS]

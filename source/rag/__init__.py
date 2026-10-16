@@ -39,6 +39,7 @@ from .storage import (
 )
 from .context import (
     DEFAULT_CONTEXT_CHARACTER_BUDGET,
+    DEFAULT_RELEVANCE_THRESHOLD,
     ArchiveIndexingResult,
     IndexingResult,
     PreparedContext,
@@ -83,6 +84,7 @@ __all__ = [
     "SearchResult",
     "VectorStoreError",
     "DEFAULT_CONTEXT_CHARACTER_BUDGET",
+    "DEFAULT_RELEVANCE_THRESHOLD",
     "ArchiveIndexingResult",
     "IndexingResult",
     "PreparedContext",
