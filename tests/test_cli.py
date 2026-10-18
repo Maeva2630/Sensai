@@ -5,11 +5,10 @@ import io
 import sys
 import os
 
-# Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
-from cli.cli import cli, MAX_TOOL_ITERATIONS
+from cli.cli import _handle_rag_filter_command, cli, MAX_TOOL_ITERATIONS
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -19,6 +18,9 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaModelNotFoundError,
 )
+from rag.context import ArchiveIndexingResult, IndexingResult, PreparedContext
+from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, IngestedDocument
+from rag.storage import SearchResult
 
 class TestCLIExceptionHandling(unittest.TestCase):
     """Unit tests for exception handling and flow control in CLI loop."""
@@ -70,6 +72,19 @@ class TestCLIExceptionHandling(unittest.TestCase):
         output = captured_output.getvalue()
         self.assertIn("Assistant: Hi there!", output)
 
+    @patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_offers_time_tool_for_a_time_request(self, mock_client_cls, mock_input):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Il est 10:00."}}']
+
+        with patch("sys.stdout", io.StringIO()):
+            cli()
+
+        offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
+        self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["get_time"])
+
     @patch("builtins.input", side_effect=[KeyboardInterrupt])
     @patch("cli.cli.OllamaHTTPClient")
     def test_cli_keyboard_interrupt_exits(self, mock_client_cls, mock_input):
@@ -105,6 +120,70 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertIn("Connection Error: Unable to connect to Ollama server", output)
         self.assertIn("Connection lost mid-stream", output)
 
+    @patch("builtins.input", side_effect=["/ingest", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_without_path_displays_usage(self, mock_client_cls, mock_input):
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        self.assertIn("Usage: /ingest <path-to-document>", captured_output.getvalue())
+        mock_client_cls.return_value.stream_message.assert_not_called()
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_reports_indexing_result(self, mock_client_cls):
+        document = IngestedDocument("document-id", "knowledge.txt", "/tmp/knowledge.txt", "Knowledge", 9)
+        indexer = MagicMock()
+        indexer.index_document.side_effect = [
+            IndexingResult(document, chunk_count=2, inserted_chunk_count=2),
+            IndexingResult(document, chunk_count=2, inserted_chunk_count=0),
+        ]
+        captured_output = io.StringIO()
+        with patch("builtins.input", side_effect=["/ingest knowledge.txt", "/ingest knowledge.txt", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_indexer=indexer)
+
+        output = captured_output.getvalue()
+        self.assertIn("Document indexed: knowledge.txt (2 chunks; 2 new chunks stored).", output)
+        self.assertIn("Document indexed: knowledge.txt (2 chunks; 0 new chunks stored).", output)
+        mock_client_cls.return_value.stream_message.assert_not_called()
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_reports_archive_summary(self, mock_client_cls):
+        document = IngestedDocument("document-id", "project.zip::guide.md", "archive::guide.md", "Guide", 5)
+        archive = ArchiveIngestionResult(
+            "project.zip",
+            "/tmp/project.zip",
+            [document],
+            ["image.png"],
+            [ArchiveEntryFailure("broken.pdf", "Could not read PDF")],
+        )
+        indexer = MagicMock()
+        indexer.index_document.return_value = ArchiveIndexingResult(
+            archive,
+            [IndexingResult(document, chunk_count=1, inserted_chunk_count=1)],
+        )
+        captured_output = io.StringIO()
+        with patch("builtins.input", side_effect=["/ingest project.zip", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_indexer=indexer)
+
+        output = captured_output.getvalue()
+        self.assertIn("Archive indexed: project.zip (1 files indexed; 1 chunks; 1 new chunks stored).", output)
+        self.assertIn("Indexed files: project.zip::guide.md", output)
+        self.assertIn("Skipped unsupported files: image.png", output)
+        self.assertIn("Failed to extract broken.pdf: Could not read PDF", output)
+
+    def test_rag_filter_commands_set_and_clear_metadata_restrictions(self):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            metadata_filter = _handle_rag_filter_command("/rag filter name guide.md,notes.md", None)
+            category_filter = _handle_rag_filter_command("/rag filter category code", metadata_filter)
+            cleared_filter = _handle_rag_filter_command("/rag filter clear", category_filter)
+
+        self.assertEqual(metadata_filter.source_filenames, ("guide.md", "notes.md"))
+        self.assertEqual(category_filter.source_types, ("code",))
+        self.assertIsNone(cleared_filter)
+        self.assertIn("RAG metadata filter cleared.", captured_output.getvalue())
 
 class AddTool(Tool):
     name = "add"
@@ -251,6 +330,81 @@ class TestCLIToolCalling(unittest.TestCase):
         self.assertEqual([m["role"] for m in self.histories[2]], ["system", "user"])
         self.assertEqual(self.histories[2][-1]["content"], "Hello")
 
+
+class TestCLIRAGIntegration(unittest.TestCase):
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_adds_rag_context_only_when_rag_is_enabled(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Grounded answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext("RAG source context", [])
+        captured_output = io.StringIO()
+
+        with patch("builtins.input", side_effect=["Question", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        sent_messages = mock_client.stream_message.call_args.args[0]
+        self.assertEqual(sent_messages[1]["content"], "RAG source context")
+        self.assertEqual(mock_client.stream_message.call_args.kwargs["tools"], [])
+        context_provider.prepare.assert_called_once_with("Question")
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_routes_a_time_request_to_the_tool_when_rag_is_enabled(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Il est 10:00."}}']
+        context_provider = MagicMock()
+
+        with patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"]), patch(
+            "sys.stdout", io.StringIO()
+        ):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        context_provider.prepare.assert_not_called()
+        offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
+        self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["get_time"])
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_displays_sources_used_for_a_rag_answer(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Grounded answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext(
+            "RAG source context",
+            [SearchResult("doc-1", "chunk-1", "guide.md", 0, "Evidence", 0.95)],
+        )
+        captured_output = io.StringIO()
+
+        with patch("builtins.input", side_effect=["Question", "exit"]), patch("sys.stdout", captured_output):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        self.assertIn("Assistant: Grounded answer", captured_output.getvalue())
+        self.assertIn("Sources: guide.md (chunks: chunk-1)", captured_output.getvalue())
+        self.assertIn("Grounded answer\n\nSources:", captured_output.getvalue())
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_can_hide_source_display_without_disabling_rag(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Grounded answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext(
+            "RAG source context",
+            [SearchResult("doc-1", "chunk-1", "guide.md", 0, "Evidence", 0.95)],
+        )
+        captured_output = io.StringIO()
+
+        with patch("builtins.input", side_effect=["/sources off", "Question", "exit"]), patch(
+            "sys.stdout", captured_output
+        ):
+            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+
+        output = captured_output.getvalue()
+        self.assertIn("Source display disabled.", output)
+        self.assertIn("Assistant: Grounded answer", output)
+        self.assertNotIn("Sources:", output)
 
 if __name__ == "__main__":
     unittest.main()

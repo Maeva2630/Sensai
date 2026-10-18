@@ -34,3 +34,12 @@ class Tool(ABC):
                 "parameters": self.parameters,
             },
         }
+
+    def is_relevant_for(self, user_input: str) -> bool:
+        """Return whether this tool should be offered for a user request.
+
+        Tools without a routing rule stay available by default, which preserves
+        the behavior of existing custom tools. Tools with a narrow purpose can
+        override this method to avoid distracting the model on unrelated tasks.
+        """
+        return True

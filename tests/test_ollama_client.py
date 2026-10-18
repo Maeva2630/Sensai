@@ -5,10 +5,8 @@ import requests
 import sys
 import os
 
-# Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
-# pyrefly: ignore [missing-import]
 from utilities.ollama_client import (
     OllamaHTTPClient,
     OllamaError,
