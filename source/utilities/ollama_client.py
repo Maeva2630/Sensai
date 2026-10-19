@@ -52,9 +52,15 @@ def parse_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 class OllamaHTTPClient:
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        model: str = "llama3.2",
+        options: Optional[Dict[str, Any]] = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.options = dict(options or {})
 
     def _handle_error_response(self, response: requests.Response) -> None:
         """Parse error message from response and raise appropriate exception."""
@@ -111,6 +117,8 @@ class OllamaHTTPClient:
     def _chat_payload(self, messages: List[Dict[str, Any]], stream: bool,
                       tools: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
         payload = {"model": self.model, "messages": messages, "stream": stream}
+        if self.options:
+            payload["options"] = self.options
         if tools:
             payload["tools"] = tools
         return payload
@@ -152,4 +160,3 @@ class OllamaHTTPClient:
             raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
             raise OllamaConnectionError(f"Unexpected error during streaming: {e}") from e
-
