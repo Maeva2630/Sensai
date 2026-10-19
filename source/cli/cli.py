@@ -2,13 +2,15 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from config import AppConfig, RagConfig
 from rag.context import (
     ArchiveIndexingResult,
+    RAGContextConfig,
     RAGContextProvider,
     RAGIndexer,
     format_source_attribution,
 )
-from rag.embeddings import EmbeddingError
+from rag.embeddings import EmbeddingConfig, EmbeddingError, EmbeddingGenerator
 from rag.ingestion import DocumentIngestionError, DocumentIngestor
 from rag.storage import MetadataFilter, VectorStoreError
 from tools.registry import ToolRegistry
@@ -27,10 +29,20 @@ from memory.session_manager import SessionManager
 MAX_TOOL_ITERATIONS = 5
 
 
-def default_registry() -> ToolRegistry:
+def default_registry(enabled: bool = True) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(GetTimeTool())
+    if enabled:
+        registry.register(GetTimeTool())
     return registry
+
+
+def _rag_context_config(config: RagConfig) -> RAGContextConfig:
+    """Convert application configuration into the RAG component settings."""
+    return RAGContextConfig(
+        top_k=config.top_k,
+        max_context_characters=config.max_context_characters,
+        relevance_threshold=config.relevance_threshold,
+    )
 
 
 def stream_response(
@@ -94,7 +106,12 @@ def cli(
     rag_context_provider: RAGContextProvider | None = None,
     session_id: str | None = None,
     profile_path: str | None = None,
+    app_config: AppConfig | None = None,
 ) -> None:
+    app_config = app_config or AppConfig()
+    model_config = app_config.model
+    feature_config = app_config.features
+    rag_config = app_config.rag
     try:
         session = SessionManager(session_id=session_id)
         profile_manager = ProfileManager(profile_path=profile_path)
@@ -106,15 +123,32 @@ def cli(
         {"role": "system", "content": profile_manager.build_system_prompt()}
     ]
     metadata_filter: MetadataFilter | None = None
-    show_sources = True
+    show_sources = feature_config.source_display_enabled
 
-    client = OllamaHTTPClient(model=model)
-    registry = registry if registry is not None else default_registry()
+    configured_model = model if model != "llama3.2" else model_config.chat_model
+    client = OllamaHTTPClient(
+        base_url=model_config.base_url,
+        model=configured_model,
+        options={"temperature": model_config.temperature, "num_ctx": model_config.context_window},
+    )
+    registry = registry if registry is not None else default_registry(feature_config.tools_enabled)
     ingestor = ingestor or DocumentIngestor()
-    rag_indexer = rag_indexer or RAGIndexer(ingestor=ingestor)
+    if rag_indexer is None:
+        embedding_client = OllamaHTTPClient(
+            base_url=model_config.base_url,
+            model=model_config.embedding_model,
+        )
+        rag_indexer = RAGIndexer(
+            ingestor=ingestor,
+            embedding_generator=EmbeddingGenerator(
+                EmbeddingConfig(model=model_config.embedding_model),
+                client=embedding_client,
+            ),
+        )
     rag_context_provider = rag_context_provider or RAGContextProvider(
         embedding_generator=rag_indexer.embedding_generator,
         vector_store=rag_indexer.vector_store,
+        config=_rag_context_config(rag_config),
     )
 
     def cmd_exit(_args: List[str]) -> bool:
@@ -158,6 +192,9 @@ def cli(
                 continue
 
             if user_input.startswith("/rag"):
+                if not feature_config.rag_enabled:
+                    print("RAG is disabled in config.json.")
+                    continue
                 rag_enabled = _handle_rag_command(user_input, rag_enabled)
                 continue
 
