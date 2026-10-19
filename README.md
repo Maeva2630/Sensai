@@ -145,8 +145,51 @@ By default, RAG retrieves the top three matching chunks, rejects chunks with a c
 
 Embeddings are persisted locally in the SQLite database `data/sensai_rag.sqlite3`. This database is created automatically and is excluded from Git because it contains local, generated knowledge-base data. The `LocalVectorStore` retrieves the most semantically similar chunks with cosine similarity. By default, it returns the top three results; this can be adjusted with the `top_k` argument.
 
-### Run tests
+### Test the project
+
+Install the development dependencies once in the activated virtual environment:
 
 ```bash
-python3 -m unittest discover -s tests
+pip install -r requirements-dev.txt
 ```
+
+Run the compact test summary for the everyday overview. It reports one line per feature, such as `✓ Document ingestion 20/20 passed`, and only shows individual test details when something fails.
+
+```bash
+python3 scripts/run_tests.py
+```
+
+For debugging a failure, run all tests with detailed test names and outcomes:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Run only the prompt-level functional workflows. They simulate Ollama responses, so they are deterministic and do not require Ollama, a downloaded model, or Internet access:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_functional_prompts.py' -v
+```
+
+Generate a branch-aware coverage report by module, including uncovered line numbers:
+
+```bash
+python3 -m coverage run scripts/run_tests.py
+python3 -m coverage report -m
+```
+
+Coverage is a signal for identifying untested code, not a reason to add low-value tests solely to reach 100%. New behaviour should include a focused unit test and, when it changes a user flow, a mocked prompt-level functional test.
+
+### Optional manual Ollama smoke test
+
+The automated suite deliberately never calls a live model. To validate the local integration after changing prompts or model configuration, start Ollama, run `python3 source/main.py`, then try the following flow with a small Markdown file:
+
+```text
+/ingest docs/guide.md
+/rag on
+Ask one question answered by guide.md
+/sources off
+Ask the question again
+```
+
+Confirm that the first response is grounded in the document and displays its source, and that the second retains the answer but hides the CLI source line.
