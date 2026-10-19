@@ -1,0 +1,20 @@
+{
+  "model": {
+    "chat_model": "llama3.2",
+    "embedding_model": "nomic-embed-text",
+    "base_url": "http://localhost:11434",
+    "temperature": 0.2,
+    "context_window": 4096
+  },
+  "features": {
+    "rag_enabled": true,
+    "tools_enabled": true,
+    "memory_enabled": false,
+    "source_display_enabled": true
+  },
+  "rag": {
+    "top_k": 3,
+    "max_context_characters": 4000,
+    "relevance_threshold": 0.35
+  }
+}
