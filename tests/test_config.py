@@ -107,7 +107,8 @@ class TestApplicationStartup(unittest.TestCase):
         with patch("main.load_config", side_effect=ConfigurationError("invalid value")), patch(
             "main.cli"
         ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output:
-            main()
+            with patch("sys.argv", ["main.py"]):
+                main()
 
         mock_cli.assert_not_called()
         self.assertIn("Configuration error: invalid value", output.getvalue())
@@ -116,7 +117,8 @@ class TestApplicationStartup(unittest.TestCase):
         with patch("main.load_config", return_value=AppConfig()), patch(
             "main.cli", side_effect=VectorStoreError("database is corrupted")
         ), patch("sys.stdout", new_callable=io.StringIO) as output:
-            main()
+            with patch("sys.argv", ["main.py"]):
+                main()
 
         self.assertIn("RAG startup error: database is corrupted", output.getvalue())
 
@@ -125,11 +127,14 @@ class TestApplicationStartup(unittest.TestCase):
         with patch("main.load_config", return_value=configuration), patch(
             "main.cli"
         ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output:
-            main()
+            with patch("sys.argv", ["main.py"]):
+                main()
 
-        mock_cli.assert_called_once_with(app_config=configuration)
+        mock_cli.assert_called_once_with(
+            session_id=None,
+            profile_path="profile.json",
+            app_config=configuration,
+        )
         self.assertIn("Memory is enabled", output.getvalue())
-
-
 if __name__ == "__main__":
     unittest.main()
