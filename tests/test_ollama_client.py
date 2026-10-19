@@ -160,6 +160,13 @@ class TestOllamaHTTPClient(unittest.TestCase):
             b'{"message": {"content": " World"}}',
         ])
 
+    def test_chat_payload_includes_configured_ollama_options(self):
+        client = OllamaHTTPClient(model="llama3.2", options={"temperature": 0.2, "num_ctx": 4096})
+
+        payload = client._chat_payload([{"role": "user", "content": "Hello"}], True, None)
+
+        self.assertEqual(payload["options"], {"temperature": 0.2, "num_ctx": 4096})
+
     @patch("requests.post")
     def test_stream_message_connection_error(self, mock_post):
         mock_post.side_effect = requests.exceptions.ConnectionError("Connection lost")
