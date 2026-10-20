@@ -21,6 +21,8 @@ from utilities.ollama_client import (
     parse_tool_calls,
 )
 
+from memory.profile_manager import ProfileManager
+from memory.session_manager import SessionManager
 
 MAX_TOOL_ITERATIONS = 5
 
@@ -90,8 +92,19 @@ def cli(
     rag_enabled: bool = False,
     rag_indexer: RAGIndexer | None = None,
     rag_context_provider: RAGContextProvider | None = None,
+    session_id: str | None = None,
+    profile_path: str | None = None,
 ) -> None:
-    messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    try:
+        session = SessionManager(session_id=session_id)
+        profile_manager = ProfileManager(profile_path=profile_path)
+        loaded = session.load(session_id) if session_id else None
+    except FileNotFoundError as error:
+        print(f"Error: {error}")
+        sys.exit(1)
+    messages = list(loaded) if loaded else [
+        {"role": "system", "content": profile_manager.build_system_prompt()}
+    ]
     metadata_filter: MetadataFilter | None = None
     show_sources = True
 
@@ -104,12 +117,40 @@ def cli(
         vector_store=rag_indexer.vector_store,
     )
 
+    def cmd_exit(_args: List[str]) -> bool:
+        session.save()
+        return True
+
+    def cmd_save(_args: List[str]) -> None:
+        session.save()
+
+    def cmd_load(args: List[str]) -> None:
+        if not args:
+            print("Usage: /load <session_id>")
+            return
+        try:
+            session.load(args[0])
+            print(f"Session {args[0]} loaded.")
+        except FileNotFoundError as error:
+            print(f"Error: {error}")
+
+    commands = {
+        "/save": cmd_save,
+        "/load": cmd_load,
+        "exit": cmd_exit,
+        "quit": cmd_exit,
+    }
+
     while True:
         try:
             user_input = input("You: ")
-            if user_input.lower() in ["exit", "quit"]:
-                break
             if not user_input.strip():
+                continue
+
+            command, *command_args = user_input.strip().split()
+            if command.lower() in commands:
+                if commands[command.lower()](command_args):
+                    break
                 continue
 
             if user_input.startswith("/rag filter"):
@@ -169,8 +210,13 @@ def cli(
             else:
                 print(f"\nWarning: stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer.")
 
-        except KeyboardInterrupt:
-            print("\nExiting.")
+            session.add_message("user", user_input)
+            session.add_message("assistant", full_response)
+
+
+        except (KeyboardInterrupt, EOFError):
+            session.save()
+            print("Exiting.")
             sys.exit(0)
 
         except OllamaConnectionError as error:
