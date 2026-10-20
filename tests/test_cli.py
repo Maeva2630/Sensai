@@ -716,5 +716,57 @@ class TestCLISessionLoading(unittest.TestCase):
         mock_session.load.assert_called_with("valid-id")
 
 
+class TestCLIMCPTools(unittest.TestCase):
+    """Tests for MCP tool discovery wiring and the /tools command."""
+
+    def run_cli(self, inputs, mcp_manager, registry=None):
+        output = io.StringIO()
+        with patch("builtins.input", side_effect=inputs), \
+                patch("cli.cli.OllamaHTTPClient"), \
+                patch("cli.cli.SessionManager"), \
+                patch("cli.cli.atexit.register") as register, \
+                patch("sys.stdout", output):
+            cli(dependencies=CliDependencies(registry=registry or ToolRegistry()), mcp_manager=mcp_manager)
+        return output.getvalue(), register
+
+    def test_tools_command_lists_native_and_mcp_tools(self):
+        # pyrefly: ignore [missing-import]
+        from mcp.manager import MCPManager, MCPTool
+        registry = ToolRegistry()
+        registry.register(AddTool())
+        manager = MagicMock(spec=MCPManager)
+        manager.start.return_value = []
+        remote = MCPTool("alpha", MagicMock(), {"name": "echo", "description": "Echo a text."})
+        manager.register_tools.side_effect = lambda reg: reg.register(remote) or []
+
+        output, _ = self.run_cli(["/tools", "exit"], manager, registry)
+
+        self.assertIn("- add [native]: Add two integers.", output)
+        self.assertIn("- alpha__echo [alpha]: Echo a text.", output)
+
+    def test_mcp_warnings_are_displayed_and_do_not_stop_the_cli(self):
+        # pyrefly: ignore [missing-import]
+        from mcp.manager import MCPManager
+        manager = MagicMock(spec=MCPManager)
+        manager.start.return_value = ["MCP server 'broken' unavailable: boom"]
+        manager.register_tools.return_value = ["Skipping MCP tool 'x': duplicate"]
+
+        output, _ = self.run_cli(["exit"], manager)
+
+        self.assertIn("Warning: MCP server 'broken' unavailable: boom", output)
+        self.assertIn("Warning: Skipping MCP tool 'x': duplicate", output)
+
+    def test_mcp_servers_are_closed_at_exit(self):
+        # pyrefly: ignore [missing-import]
+        from mcp.manager import MCPManager
+        manager = MagicMock(spec=MCPManager)
+        manager.start.return_value = []
+        manager.register_tools.return_value = []
+
+        _, register = self.run_cli(["exit"], manager)
+
+        register.assert_called_once_with(manager.close)
+
+
 if __name__ == "__main__":
     unittest.main()
