@@ -8,7 +8,14 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
-from cli.cli import CliDependencies, _handle_rag_filter_command, cli, MAX_TOOL_ITERATIONS
+from cli.cli import (
+    CliDependencies,
+    MAX_TOOL_ITERATIONS,
+    _handle_rag_command,
+    _handle_rag_filter_command,
+    _handle_sources_command,
+    cli,
+)
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -71,6 +78,21 @@ class TestCLIExceptionHandling(unittest.TestCase):
 
         output = captured_output.getvalue()
         self.assertIn("Assistant: Hi there!", output)
+
+    @patch("builtins.input", side_effect=["Hello", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_malformed_stream_response_displays_warning_without_crashing(
+        self, mock_client_cls, mock_input
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b"this is not JSON"]
+
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        self.assertIn("Warning: Ollama returned an invalid streaming response.", captured_output.getvalue())
 
     @patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
@@ -184,6 +206,48 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertEqual(category_filter.source_types, ("code",))
         self.assertIsNone(cleared_filter)
         self.assertIn("RAG metadata filter cleared.", captured_output.getvalue())
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_keeps_a_path_with_spaces_intact(self, mock_client_cls):
+        indexer = MagicMock()
+        document = IngestedDocument(
+            "document-id", "my guide.md", "/tmp/my guide.md", "Knowledge", 9
+        )
+        indexer.index_document.return_value = IndexingResult(document, chunk_count=1, inserted_chunk_count=1)
+
+        with patch("builtins.input", side_effect=["/ingest docs/my guide.md", "exit"]), patch(
+            "sys.stdout", io.StringIO()
+        ):
+            cli(dependencies=CliDependencies(rag_indexer=indexer))
+
+        indexer.index_document.assert_called_once_with("docs/my guide.md")
+
+
+class TestCLICommands(unittest.TestCase):
+    def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            enabled = _handle_rag_command("/rag on", False)
+            disabled = _handle_rag_command("/rag off", enabled)
+            unchanged = _handle_rag_command("/rag unexpected", disabled)
+
+        self.assertTrue(enabled)
+        self.assertFalse(disabled)
+        self.assertFalse(unchanged)
+        self.assertIn("RAG mode enabled", captured_output.getvalue())
+        self.assertIn("Usage: /rag", captured_output.getvalue())
+
+    def test_source_commands_change_state_and_report_status(self):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            hidden = _handle_sources_command("/sources off", True)
+            unchanged = _handle_sources_command("/sources status", hidden)
+            restored = _handle_sources_command("/sources on", unchanged)
+
+        self.assertFalse(hidden)
+        self.assertFalse(unchanged)
+        self.assertTrue(restored)
+        self.assertIn("Source display is disabled.", captured_output.getvalue())
 
 class AddTool(Tool):
     name = "add"
