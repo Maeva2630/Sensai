@@ -1,3 +1,4 @@
+import atexit
 import json
 import sys
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import EmbeddingError
+from mcp.manager import MCPManager
 from rag.storage import VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
@@ -114,6 +116,7 @@ def cli(
     *,
     session_id: str | None = None,
     profile_path: str | None = None,
+    mcp_manager: MCPManager | None = None,
 ) -> None:
     """Run the interactive CLI using application settings and optional wiring overrides."""
     app_config = app_config or AppConfig()
@@ -138,6 +141,10 @@ def cli(
         if dependencies.registry is not None
         else default_registry(feature_config.tools_enabled)
     )
+    mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file()
+    for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
+        print(f"Warning: {warning}")
+    atexit.register(mcp_manager.close)
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -150,6 +157,7 @@ def cli(
         runtime.rag_indexer,
         conversation_session,
         GLOBAL_COMMANDS,
+        registry,
     )
 
     while True:

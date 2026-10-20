@@ -9,6 +9,7 @@ from config import FeatureConfig
 from memory.session_manager import SessionManager
 from rag.context import RAGIndexer
 from rag.storage import MetadataFilter
+from tools.registry import ToolRegistry
 
 
 CommandHandler = Callable[[str, "CliSession", "CliCommandContext"], None]
@@ -50,3 +51,4 @@ class CliCommandContext:
     rag_indexer: RAGIndexer
     conversation_session: SessionManager
     command_definitions: tuple[CommandDefinition, ...] = ()
+    registry: ToolRegistry | None = None
