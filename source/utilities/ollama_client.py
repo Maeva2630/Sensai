@@ -3,6 +3,9 @@ import json
 from typing import List, Dict, Any, Generator, Optional
 
 
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+
+
 class OllamaError(Exception):
     """Base exception for all Ollama client errors."""
     pass
@@ -38,16 +41,32 @@ def parse_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
     Returns a list of {"name": str, "arguments": dict}. Arguments sent as a JSON
     string are decoded; undecodable arguments become an empty dict.
     """
+    if not isinstance(message, dict):
+        return []
+
+    raw_calls = message.get("tool_calls") or []
+    if not isinstance(raw_calls, list):
+        return []
+
     calls = []
-    for call in (message or {}).get("tool_calls") or []:
+    for call in raw_calls:
+        if not isinstance(call, dict):
+            continue
         function = call.get("function", {})
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
         arguments = function.get("arguments", {})
         if isinstance(arguments, str):
             try:
                 arguments = json.loads(arguments)
             except json.JSONDecodeError:
                 arguments = {}
-        calls.append({"name": function.get("name", ""), "arguments": arguments or {}})
+        if not isinstance(arguments, dict):
+            arguments = {}
+        calls.append({"name": name, "arguments": arguments})
     return calls
 
 
@@ -57,10 +76,14 @@ class OllamaHTTPClient:
         base_url: str = "http://localhost:11434",
         model: str = "llama3.2",
         options: Optional[Dict[str, Any]] = None,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     ):
+        if isinstance(request_timeout, bool) or request_timeout <= 0:
+            raise ValueError("request_timeout must be greater than zero.")
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.options = dict(options or {})
+        self.request_timeout = request_timeout
 
     def _handle_error_response(self, response: requests.Response) -> None:
         """Parse error message from response and raise appropriate exception."""
@@ -83,13 +106,21 @@ class OllamaHTTPClient:
     def list_models(self) -> List[str]:
         """Fetch list of available models from Ollama."""
         try:
-            response = requests.get(f"{self.base_url}/api/tags")
+            response = requests.get(f"{self.base_url}/api/tags", timeout=self.request_timeout)
             if response.status_code != 200:
                 self._handle_error_response(response)
             
             data = response.json()
+            if not isinstance(data, dict):
+                raise OllamaResponseError("Ollama returned an invalid model-list response.")
             models_list = data.get("models", [])
-            return [m["name"] for m in models_list if "name" in m]
+            if not isinstance(models_list, list):
+                raise OllamaResponseError("Ollama returned an invalid model-list response.")
+            return [
+                model["name"]
+                for model in models_list
+                if isinstance(model, dict) and isinstance(model.get("name"), str)
+            ]
         except (OllamaModelNotFoundError, OllamaResponseError):
             raise
         except requests.exceptions.RequestException as e:
@@ -102,11 +133,15 @@ class OllamaHTTPClient:
         try:
             response = requests.post(
                 f"{self.base_url}/api/embed",
-                json={"model": self.model, "input": text}
+                json={"model": self.model, "input": text},
+                timeout=self.request_timeout,
             )
             if response.status_code != 200:
                 self._handle_error_response(response)
-            return response.json()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise OllamaResponseError("Ollama returned an invalid embedding response.")
+            return data
         except (OllamaModelNotFoundError, OllamaResponseError):
             raise
         except requests.exceptions.RequestException as e:
@@ -130,6 +165,7 @@ class OllamaHTTPClient:
             response = requests.post(
                 f"{self.base_url}/api/chat",
                 json=self._chat_payload(messages, False, tools),
+                timeout=self.request_timeout,
             )
             if response.status_code != 200:
                 self._handle_error_response(response)
@@ -149,6 +185,7 @@ class OllamaHTTPClient:
                 f"{self.base_url}/api/chat",
                 json=self._chat_payload(messages, True, tools),
                 stream=True,
+                timeout=self.request_timeout,
             )
             if response.status_code != 200:
                 self._handle_error_response(response)
