@@ -180,6 +180,12 @@ python3 -m coverage report -m
 
 Coverage is a signal for identifying untested code, not a reason to add low-value tests solely to reach 100%. New behaviour should include a focused unit test and, when it changes a user flow, a mocked prompt-level functional test.
 
+Check likely runtime mistakes and unused imports with Ruff:
+
+```bash
+python3 -m ruff check .
+```
+
 ### Optional manual Ollama smoke test
 
 The automated suite deliberately never calls a live model. To validate the local integration after changing prompts or model configuration, start Ollama, run `python3 source/main.py`, then try the following flow with a small Markdown file:
@@ -193,3 +199,11 @@ Ask the question again
 ```
 
 Confirm that the first response is grounded in the document and displays its source, and that the second retains the answer but hides the CLI source line.
+
+For a separate live HTTP smoke test of the Ollama client, after starting Ollama and downloading the configured model, run:
+
+```bash
+python3 tests/test_ollama_client.py --integration
+```
+
+This command is intentionally manual: unlike the automated tests, it requires a running Ollama server and local models.
