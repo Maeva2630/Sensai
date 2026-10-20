@@ -2,7 +2,7 @@ import argparse
 
 from cli.cli import cli
 from config import ConfigurationError, load_config
-
+from rag.storage import VectorStoreError
 
 def main():
     parser = argparse.ArgumentParser(description="Sensai CLI")
@@ -29,11 +29,14 @@ def main():
         return
     if app_config.features.memory_enabled:
         print("Memory is enabled in config.json but is not implemented yet; it remains inactive.")
-    cli(
-        session_id=args.session,
-        profile_path=args.profile,
-        app_config=app_config,
-    )
+    try:
+        cli(
+            session_id=args.session,
+            profile_path=args.profile,
+            app_config=app_config,
+        )
+    except VectorStoreError as error:
+        print(f"RAG startup error: {error}")
 
 if __name__ == "__main__":
     main()
