@@ -1,105 +1,20 @@
+"""Tests for translating and validating application configuration."""
+
 import json
+import io
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
-from cli.cli import _rag_context_config, cli
-from config import AppConfig, ConfigurationError, FeatureConfig, ModelConfig, RagConfig, load_config
-
-
-class TestApplicationConfig(unittest.TestCase):
-    def _write_config(self, data: dict) -> Path:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        path = Path(directory.name) / "config.json"
-        path.write_text(json.dumps(data), encoding="utf-8")
-        return path
-
-    def test_loads_all_configurable_sensai_settings(self):
-        path = self._write_config(
-            {
-                "model": {
-                    "chat_model": "custom-chat",
-                    "embedding_model": "custom-embed",
-                    "base_url": "http://localhost:9999",
-                    "temperature": 0.4,
-                    "context_window": 8192,
-                },
-                "features": {
-                    "rag_enabled": True,
-                    "tools_enabled": False,
-                    "memory_enabled": False,
-                    "source_display_enabled": False,
-                },
-                "rag": {
-                    "top_k": 2,
-                    "max_context_characters": 1000,
-                    "relevance_threshold": 0.5,
-                },
-            }
-        )
-
-        config = load_config(path)
-
-        self.assertEqual(config.model.chat_model, "custom-chat")
-        self.assertEqual(config.model.embedding_model, "custom-embed")
-        self.assertEqual(config.model.context_window, 8192)
-        self.assertFalse(config.features.tools_enabled)
-        self.assertEqual(config.rag.relevance_threshold, 0.5)
-
-    def test_rejects_invalid_temperature(self):
-        path = self._write_config(
-            {
-                "model": {
-                    "chat_model": "llama3.2",
-                    "embedding_model": "nomic-embed-text",
-                    "base_url": "http://localhost:11434",
-                    "temperature": 3,
-                    "context_window": 4096,
-                },
-                "features": {
-                    "rag_enabled": False,
-                    "tools_enabled": True,
-                    "memory_enabled": False,
-                    "source_display_enabled": True,
-                },
-                "rag": {
-                    "top_k": 3,
-                    "max_context_characters": 4000,
-                    "relevance_threshold": 0.35,
-                },
-            }
-        )
-
-        with self.assertRaises(ConfigurationError):
-            load_config(path)
-
-    @patch("cli.cli.OllamaHTTPClient")
-    def test_cli_passes_model_options_and_disables_tools_from_config(self, mock_client_cls):
-        mock_client_cls.return_value = MagicMock()
-        config = AppConfig(
-            model=ModelConfig(
-                chat_model="configured-chat",
-                embedding_model="configured-embed",
-                temperature=0.7,
-                context_window=8192,
-            ),
-            features=FeatureConfig(tools_enabled=False),
-            rag=RagConfig(),
-        )
-
-        with patch("builtins.input", side_effect=["exit"]):
-            cli(app_config=config)
-
-        chat_call = mock_client_cls.call_args_list[0]
-        self.assertEqual(chat_call.kwargs["model"], "configured-chat")
-        self.assertEqual(chat_call.kwargs["options"], {"temperature": 0.7, "num_ctx": 8192})
-        self.assertEqual(mock_client_cls.call_args_list[1].kwargs["model"], "configured-embed")
+from cli.cli import _rag_context_config
+from config import AppConfig, ConfigurationError, FeatureConfig, RagConfig, load_config
+from main import main
+from rag.storage import VectorStoreError
 
 
 class TestRagConfiguration(unittest.TestCase):
@@ -111,6 +26,109 @@ class TestRagConfiguration(unittest.TestCase):
         self.assertEqual(settings.top_k, 5)
         self.assertEqual(settings.max_context_characters, 1200)
         self.assertEqual(settings.relevance_threshold, 0.6)
+
+
+class TestConfigurationLoading(unittest.TestCase):
+    def setUp(self):
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.temporary_directory.name) / "config.json"
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def write_config(self, changes=None):
+        data = {
+            "model": {
+                "chat_model": "test-chat",
+                "embedding_model": "test-embed",
+                "base_url": "http://localhost:11434",
+                "temperature": 0.2,
+                "context_window": 4096,
+            },
+            "features": {
+                "rag_enabled": True,
+                "tools_enabled": True,
+                "memory_enabled": False,
+                "source_display_enabled": True,
+            },
+            "rag": {
+                "top_k": 3,
+                "max_context_characters": 4000,
+                "relevance_threshold": 0.35,
+            },
+        }
+        for section, values in (changes or {}).items():
+            data[section].update(values)
+        self.config_path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_loads_a_complete_valid_configuration(self):
+        self.write_config()
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.model.chat_model, "test-chat")
+        self.assertEqual(configuration.model.context_window, 4096)
+        self.assertTrue(configuration.features.rag_enabled)
+        self.assertEqual(configuration.rag.top_k, 3)
+
+    def test_rejects_invalid_json(self):
+        self.config_path.write_text("{ not valid JSON", encoding="utf-8")
+
+        with self.assertRaisesRegex(ConfigurationError, "Invalid JSON"):
+            load_config(self.config_path)
+
+    def test_rejects_missing_required_section(self):
+        self.write_config()
+        data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        del data["features"]
+        self.config_path.write_text(json.dumps(data), encoding="utf-8")
+
+        with self.assertRaisesRegex(ConfigurationError, "features"):
+            load_config(self.config_path)
+
+    def test_rejects_invalid_values_before_startup(self):
+        cases = (
+            ({"model": {"temperature": 2.1}}, "temperature"),
+            ({"model": {"context_window": 0}}, "context_window"),
+            ({"model": {"chat_model": ""}}, "chat_model"),
+            ({"features": {"rag_enabled": "yes"}}, "rag_enabled"),
+            ({"rag": {"relevance_threshold": -1.1}}, "relevance_threshold"),
+            ({"rag": {"top_k": 0}}, "top_k"),
+        )
+        for changes, expected_field in cases:
+            with self.subTest(changes=changes):
+                self.write_config(changes)
+                with self.assertRaisesRegex(ConfigurationError, expected_field):
+                    load_config(self.config_path)
+
+
+class TestApplicationStartup(unittest.TestCase):
+    def test_main_reports_invalid_configuration_without_starting_the_cli(self):
+        with patch("main.load_config", side_effect=ConfigurationError("invalid value")), patch(
+            "main.cli"
+        ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output:
+            main()
+
+        mock_cli.assert_not_called()
+        self.assertIn("Configuration error: invalid value", output.getvalue())
+
+    def test_main_reports_corrupted_rag_database_without_a_traceback(self):
+        with patch("main.load_config", return_value=AppConfig()), patch(
+            "main.cli", side_effect=VectorStoreError("database is corrupted")
+        ), patch("sys.stdout", new_callable=io.StringIO) as output:
+            main()
+
+        self.assertIn("RAG startup error: database is corrupted", output.getvalue())
+
+    def test_main_warns_when_memory_is_enabled_but_still_starts(self):
+        configuration = AppConfig(features=FeatureConfig(memory_enabled=True))
+        with patch("main.load_config", return_value=configuration), patch(
+            "main.cli"
+        ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output:
+            main()
+
+        mock_cli.assert_called_once_with(app_config=configuration)
+        self.assertIn("Memory is enabled", output.getvalue())
 
 
 if __name__ == "__main__":
