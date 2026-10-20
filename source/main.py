@@ -1,5 +1,6 @@
 from config import ConfigurationError, load_config
 from cli.cli import cli
+from rag.storage import VectorStoreError
 
 def main():
     try:
@@ -9,7 +10,10 @@ def main():
         return
     if app_config.features.memory_enabled:
         print("Memory is enabled in config.json but is not implemented yet; it remains inactive.")
-    cli(app_config=app_config)
+    try:
+        cli(app_config=app_config)
+    except VectorStoreError as error:
+        print(f"RAG startup error: {error}")
 
 if __name__ == "__main__":
     main()

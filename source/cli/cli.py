@@ -20,6 +20,7 @@ from utilities.ollama_client import (
     OllamaConnectionError,
     OllamaError,
     OllamaHTTPClient,
+    OllamaResponseError,
     build_tool_message,
     parse_tool_calls,
 )
@@ -65,15 +66,29 @@ def stream_response(
     for line in client.stream_message(messages, tools=tools):
         if not line:
             continue
-        message = json.loads(line).get("message", {})
+        try:
+            payload = json.loads(line)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise OllamaResponseError("Ollama returned an invalid streaming response.") from error
+        if not isinstance(payload, dict):
+            raise OllamaResponseError("Ollama returned an invalid streaming response.")
+
+        message = payload.get("message", {})
+        if not isinstance(message, dict):
+            raise OllamaResponseError("Ollama returned an invalid streaming response.")
         content = message.get("content", "")
+        if not isinstance(content, str):
+            raise OllamaResponseError("Ollama returned a response with invalid text content.")
         if content:
             if not printed_prefix:
                 print("Assistant: ", end="", flush=True)
                 printed_prefix = True
             print(content, end="", flush=True)
             full_response += content
-        raw_tool_calls.extend(message.get("tool_calls") or [])
+        tool_calls = message.get("tool_calls") or []
+        if not isinstance(tool_calls, list):
+            raise OllamaResponseError("Ollama returned invalid tool calls in a streaming response.")
+        raw_tool_calls.extend(tool_calls)
 
     if printed_prefix:
         print()
