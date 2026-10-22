@@ -1,8 +1,11 @@
 import json
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 from config import AppConfig, RagConfig
+from memory.profile_manager import ProfileManager
+from memory.session_manager import SessionManager
 from rag.context import (
     ArchiveIndexingResult,
     RAGContextConfig,
@@ -23,10 +26,16 @@ from utilities.ollama_client import (
     parse_tool_calls,
 )
 
-from memory.profile_manager import ProfileManager
-from memory.session_manager import SessionManager
-
 MAX_TOOL_ITERATIONS = 5
+
+
+@dataclass(frozen=True)
+class CliDependencies:
+    """Optional infrastructure overrides used by tests and alternate frontends."""
+
+    registry: ToolRegistry | None = None
+    rag_indexer: RAGIndexer | None = None
+    rag_context_provider: RAGContextProvider | None = None
 
 
 def default_registry(enabled: bool = True) -> ToolRegistry:
@@ -47,12 +56,12 @@ def _rag_context_config(config: RagConfig) -> RAGContextConfig:
 
 def stream_response(
     client: OllamaHTTPClient,
-    messages: List[Dict[str, Any]],
-    tools: List[Dict[str, Any]],
-) -> Tuple[str, List[Dict[str, Any]]]:
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
     """Stream one model response and return its text and requested tool calls."""
     full_response = ""
-    raw_tool_calls: List[Dict[str, Any]] = []
+    raw_tool_calls: list[dict[str, Any]] = []
     printed_prefix = False
 
     for line in client.stream_message(messages, tools=tools):
@@ -75,8 +84,8 @@ def stream_response(
 
 def run_tool_calls(
     registry: ToolRegistry,
-    raw_tool_calls: List[Dict[str, Any]],
-    messages: List[Dict[str, Any]],
+    raw_tool_calls: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
 ) -> None:
     """Execute each tool call and append its result to the history."""
     for call in parse_tool_calls({"tool_calls": raw_tool_calls}):
@@ -88,9 +97,9 @@ def run_tool_calls(
 
 
 def _request_messages(
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     rag_system_message: str | None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Inject temporary RAG context after the base system message when enabled."""
     if rag_system_message is None:
         return messages
@@ -98,17 +107,15 @@ def _request_messages(
 
 
 def cli(
-    model: str = "llama3.2",
-    registry: Optional[ToolRegistry] = None,
-    ingestor: DocumentIngestor | None = None,
-    rag_enabled: bool = False,
-    rag_indexer: RAGIndexer | None = None,
-    rag_context_provider: RAGContextProvider | None = None,
+    app_config: AppConfig | None = None,
+    dependencies: CliDependencies | None = None,
+    *,
     session_id: str | None = None,
     profile_path: str | None = None,
-    app_config: AppConfig | None = None,
 ) -> None:
+    """Run the interactive CLI using application settings and optional wiring overrides."""
     app_config = app_config or AppConfig()
+    dependencies = dependencies or CliDependencies()
     model_config = app_config.model
     feature_config = app_config.features
     rag_config = app_config.rag
@@ -124,41 +131,47 @@ def cli(
     ]
     metadata_filter: MetadataFilter | None = None
     show_sources = feature_config.source_display_enabled
+    rag_enabled = False
 
-    configured_model = model if model != "llama3.2" else model_config.chat_model
     client = OllamaHTTPClient(
         base_url=model_config.base_url,
-        model=configured_model,
+        model=model_config.chat_model,
         options={"temperature": model_config.temperature, "num_ctx": model_config.context_window},
     )
-    registry = registry if registry is not None else default_registry(feature_config.tools_enabled)
-    ingestor = ingestor or DocumentIngestor()
+    registry = (
+        dependencies.registry
+        if dependencies.registry is not None
+        else default_registry(feature_config.tools_enabled)
+    )
+    rag_indexer = dependencies.rag_indexer
     if rag_indexer is None:
         embedding_client = OllamaHTTPClient(
             base_url=model_config.base_url,
             model=model_config.embedding_model,
         )
         rag_indexer = RAGIndexer(
-            ingestor=ingestor,
+            ingestor=DocumentIngestor(),
             embedding_generator=EmbeddingGenerator(
                 EmbeddingConfig(model=model_config.embedding_model),
                 client=embedding_client,
             ),
         )
-    rag_context_provider = rag_context_provider or RAGContextProvider(
-        embedding_generator=rag_indexer.embedding_generator,
-        vector_store=rag_indexer.vector_store,
-        config=_rag_context_config(rag_config),
-    )
+    rag_context_provider = dependencies.rag_context_provider
+    if rag_context_provider is None:
+        rag_context_provider = RAGContextProvider(
+            embedding_generator=rag_indexer.embedding_generator,
+            vector_store=rag_indexer.vector_store,
+            config=_rag_context_config(rag_config),
+        )
 
-    def cmd_exit(_args: List[str]) -> bool:
+    def cmd_exit(_args: list[str]) -> bool:
         session.save()
         return True
 
-    def cmd_save(_args: List[str]) -> None:
+    def cmd_save(_args: list[str]) -> None:
         session.save()
 
-    def cmd_load(args: List[str]) -> None:
+    def cmd_load(args: list[str]) -> None:
         if not args:
             print("Usage: /load <session_id>")
             return
@@ -232,7 +245,7 @@ def cli(
                 request_messages = _request_messages(messages, rag_system_message)
                 full_response, raw_tool_calls = stream_response(client, request_messages, tools)
 
-                assistant_message: Dict[str, Any] = {"role": "assistant", "content": full_response}
+                assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
                 if raw_tool_calls:
                     assistant_message["tool_calls"] = raw_tool_calls
                 messages.append(assistant_message)

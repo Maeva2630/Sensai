@@ -1,7 +1,7 @@
 import argparse
 
-from config import ConfigurationError, load_config
 from cli.cli import cli
+from config import ConfigurationError, load_config
 
 
 def main():
@@ -12,12 +12,6 @@ def main():
         default=None,
         metavar="SESSION_ID",
         help="Resume a previous session by its ID"
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="llama3.2",
-        help="Ollama model to use (default: llama3.2)"
     )
     parser.add_argument(
         "--profile",
@@ -36,7 +30,6 @@ def main():
     if app_config.features.memory_enabled:
         print("Memory is enabled in config.json but is not implemented yet; it remains inactive.")
     cli(
-        model=args.model,
         session_id=args.session,
         profile_path=args.profile,
         app_config=app_config,
