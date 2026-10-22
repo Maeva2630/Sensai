@@ -3,17 +3,18 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from cli.commands import GLOBAL_COMMAND_HANDLERS
+from cli.session import CliCommandContext, CliSession, CommandHandler
 from config import AppConfig, RagConfig
 from rag.context import (
-    ArchiveIndexingResult,
     RAGContextConfig,
     RAGContextProvider,
     RAGIndexer,
     format_source_attribution,
 )
 from rag.embeddings import EmbeddingConfig, EmbeddingError, EmbeddingGenerator
-from rag.ingestion import DocumentIngestionError, DocumentIngestor
-from rag.storage import MetadataFilter, VectorStoreError
+from rag.ingestion import DocumentIngestor
+from rag.storage import VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -26,7 +27,6 @@ from utilities.ollama_client import (
 )
 
 MAX_TOOL_ITERATIONS = 5
-
 
 # Dependency injection for tests and alternative entry points: callers can replace
 # external services with deterministic implementations without changing CLI settings.
@@ -53,6 +53,20 @@ def _rag_context_config(config: RagConfig) -> RAGContextConfig:
         max_context_characters=config.max_context_characters,
         relevance_threshold=config.relevance_threshold,
     )
+
+
+def _dispatch_command(
+    user_input: str,
+    session: CliSession,
+    context: CliCommandContext,
+    command_handlers: tuple[tuple[str, CommandHandler], ...],
+) -> bool:
+    """Run the first matching command handler and report whether input was a command."""
+    for prefix, handler in command_handlers:
+        if user_input.startswith(prefix):
+            handler(user_input, session, context)
+            return True
+    return False
 
 
 def stream_response(
@@ -132,9 +146,7 @@ def cli(
     feature_config = app_config.features
     rag_config = app_config.rag
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
-    metadata_filter: MetadataFilter | None = None
-    show_sources = feature_config.source_display_enabled
-    rag_enabled = False
+    session = CliSession(show_sources=feature_config.source_display_enabled)
 
     client = OllamaHTTPClient(
         base_url=model_config.base_url,
@@ -166,6 +178,7 @@ def cli(
             vector_store=rag_indexer.vector_store,
             config=_rag_context_config(rag_config),
         )
+    command_context = CliCommandContext(feature_config, rag_indexer)
 
     while True:
         try:
@@ -175,23 +188,7 @@ def cli(
             if not user_input.strip():
                 continue
 
-            if user_input.startswith("/rag filter"):
-                metadata_filter = _handle_rag_filter_command(user_input, metadata_filter)
-                continue
-
-            if user_input.startswith("/rag"):
-                if not feature_config.rag_enabled:
-                    print("RAG is disabled in config.json.")
-                    continue
-                rag_enabled = _handle_rag_command(user_input, rag_enabled)
-                continue
-
-            if user_input.startswith("/ingest"):
-                _handle_ingest_command(user_input, rag_indexer)
-                continue
-
-            if user_input.startswith("/sources"):
-                show_sources = _handle_sources_command(user_input, show_sources)
+            if _dispatch_command(user_input, session, command_context, GLOBAL_COMMAND_HANDLERS):
                 continue
 
             turn_start = len(messages)
@@ -202,14 +199,14 @@ def cli(
             # A tool-specific request should be handled by its matching tool,
             # not by document retrieval. For all other requests, RAG keeps its
             # normal document-grounded behavior.
-            if rag_enabled and not tools:
+            if session.rag_enabled and not tools:
                 try:
-                    if metadata_filter is None:
+                    if session.metadata_filter is None:
                         prepared_context = rag_context_provider.prepare(user_input)
                     else:
-                        prepared_context = rag_context_provider.prepare(user_input, metadata_filter)
+                        prepared_context = rag_context_provider.prepare(user_input, session.metadata_filter)
                     rag_system_message = prepared_context.system_message
-                    if metadata_filter and not prepared_context.results:
+                    if session.metadata_filter and not prepared_context.results:
                         print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
                     del messages[turn_start:]
@@ -226,7 +223,7 @@ def cli(
                 messages.append(assistant_message)
 
                 if not raw_tool_calls:
-                    if show_sources and prepared_context is not None:
+                    if session.show_sources and prepared_context is not None:
                         attribution = format_source_attribution(prepared_context.results)
                         if attribution:
                             print(f"\n{attribution}")
@@ -249,109 +246,3 @@ def cli(
         except OllamaError as error:
             del messages[turn_start:]
             print(f"\nWarning: {error}")
-
-
-def _handle_ingest_command(user_input: str, rag_indexer: RAGIndexer) -> None:
-    """Index a local document without sending the command to the chat model."""
-    command, separator, document_path = user_input.partition(" ")
-    if command != "/ingest" or not separator or not document_path.strip():
-        print("Usage: /ingest <path-to-document>")
-        return
-
-    try:
-        result = rag_indexer.index_document(document_path.strip())
-    except (DocumentIngestionError, EmbeddingError, VectorStoreError) as error:
-        print(f"Document indexing failed: {error}")
-        return
-
-    if isinstance(result, ArchiveIndexingResult):
-        _print_archive_indexing_summary(result)
-        return
-
-    print(
-        f"Document indexed: {result.document.source_filename} "
-        f"({result.chunk_count} chunks; {result.inserted_chunk_count} new chunks stored)."
-    )
-
-
-def _print_archive_indexing_summary(result: ArchiveIndexingResult) -> None:
-    """Display successful, skipped, and failed archive entries separately."""
-    archive = result.archive
-    print(
-        f"Archive indexed: {archive.archive_filename} "
-        f"({len(result.indexed_documents)} files indexed; {result.chunk_count} chunks; "
-        f"{result.inserted_chunk_count} new chunks stored)."
-    )
-    if result.indexed_documents:
-        indexed_files = ", ".join(
-            document_result.document.archive_entry_path or document_result.document.source_filename
-            for document_result in result.indexed_documents
-        )
-        print(f"Indexed files: {indexed_files}")
-    if archive.skipped_entries:
-        print(f"Skipped unsupported files: {', '.join(archive.skipped_entries)}")
-    for failure in archive.failed_entries:
-        print(f"Failed to extract {failure.entry_path}: {failure.reason}")
-
-
-def _handle_rag_command(user_input: str, rag_enabled: bool) -> bool:
-    """Enable, disable, or report the status of document-grounded chat mode."""
-    command, _, option = user_input.partition(" ")
-    normalized_option = option.strip().lower()
-    if command != "/rag" or normalized_option not in {"on", "off", "status"}:
-        print("Usage: /rag <on|off|status>")
-        return rag_enabled
-    if normalized_option == "on":
-        print("RAG mode enabled. Responses will use indexed documents only.")
-        return True
-    if normalized_option == "off":
-        print("RAG mode disabled. The normal chatbot behavior is restored.")
-        return False
-    print(f"RAG mode is {'enabled' if rag_enabled else 'disabled'}.")
-    return rag_enabled
-
-
-def _handle_rag_filter_command(
-    user_input: str,
-    current_filter: MetadataFilter | None,
-) -> MetadataFilter | None:
-    """Set or clear the metadata restriction used by subsequent RAG questions."""
-    _, _, arguments = user_input.partition("/rag filter")
-    option, _, value = arguments.strip().partition(" ")
-    values = tuple(item.strip() for item in value.split(",") if item.strip())
-    if option == "clear" and not value.strip():
-        print("RAG metadata filter cleared.")
-        return None
-    if option == "name" and values:
-        metadata_filter = MetadataFilter(source_filenames=values)
-        print(f"RAG filter set to source name: {', '.join(values)}")
-        return metadata_filter
-    if option == "category" and values:
-        allowed_categories = {"document", "code", "configuration", "markup"}
-        normalized_values = tuple(item.lower() for item in values)
-        invalid_values = sorted(set(normalized_values) - allowed_categories)
-        if not invalid_values:
-            metadata_filter = MetadataFilter(source_types=normalized_values)
-            print(f"RAG filter set to category: {', '.join(normalized_values)}")
-            return metadata_filter
-        print(f"Unknown category: {', '.join(invalid_values)}")
-        return current_filter
-    print("Usage: /rag filter <name <source>[,<source>...]|category <type>[,<type>...]|clear>")
-    return current_filter
-
-
-def _handle_sources_command(user_input: str, show_sources: bool) -> bool:
-    """Enable, disable, or report CLI-generated source attribution lines."""
-    command, _, option = user_input.partition(" ")
-    normalized_option = option.strip().lower()
-    if command != "/sources" or normalized_option not in {"on", "off", "status"}:
-        print("Usage: /sources <on|off|status>")
-        return show_sources
-    if normalized_option == "on":
-        print("Source display enabled.")
-        return True
-    if normalized_option == "off":
-        print("Source display disabled.")
-        return False
-    print(f"Source display is {'enabled' if show_sources else 'disabled'}.")
-    return show_sources
