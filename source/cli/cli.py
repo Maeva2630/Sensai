@@ -138,29 +138,6 @@ def cli(
         if dependencies.registry is not None
         else default_registry(feature_config.tools_enabled)
     )
-    def cmd_exit(_args: list[str]) -> bool:
-        conversation_session.save()
-        return True
-
-    def cmd_save(_args: list[str]) -> None:
-        conversation_session.save()
-
-    def cmd_load(args: list[str]) -> None:
-        if not args:
-            print("Usage: /load <session_id>")
-            return
-        try:
-            conversation_session.load(args[0])
-            print(f"Session {args[0]} loaded.")
-        except FileNotFoundError as error:
-            print(f"Error: {error}")
-
-    conversation_commands = {
-        "/save": cmd_save,
-        "/load": cmd_load,
-        "exit": cmd_exit,
-        "quit": cmd_exit,
-    }
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -168,7 +145,12 @@ def cli(
         rag_context_provider=dependencies.rag_context_provider,
         client_factory=OllamaHTTPClient,
     )
-    command_context = CliCommandContext(feature_config, runtime.rag_indexer, GLOBAL_COMMANDS)
+    command_context = CliCommandContext(
+        feature_config,
+        runtime.rag_indexer,
+        conversation_session,
+        GLOBAL_COMMANDS,
+    )
 
     while True:
         try:
@@ -176,12 +158,9 @@ def cli(
             if not user_input.strip():
                 continue
 
-            command, *command_args = user_input.strip().split()
-            if command.lower() in conversation_commands:
-                if conversation_commands[command.lower()](command_args):
-                    break
-                continue
             if _dispatch_command(user_input, session, command_context, GLOBAL_COMMANDS):
+                if session.exit_requested:
+                    break
                 continue
 
             turn_start = len(messages)

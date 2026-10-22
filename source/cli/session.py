@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from config import FeatureConfig
+from memory.session_manager import SessionManager
 from rag.context import RAGIndexer
 from rag.storage import MetadataFilter
 
@@ -38,6 +39,7 @@ class CliSession:
     rag_enabled: bool = False
     metadata_filter: MetadataFilter | None = None
     show_sources: bool = True
+    exit_requested: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,4 +48,5 @@ class CliCommandContext:
 
     feature_config: FeatureConfig
     rag_indexer: RAGIndexer
+    conversation_session: SessionManager
     command_definitions: tuple[CommandDefinition, ...] = ()
