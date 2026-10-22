@@ -62,6 +62,17 @@ class TestPromptInspection(unittest.TestCase):
         self.assertIn("System message", output)
         self.assertIn("RAG context", output)
         self.assertIn("User message", output)
+        self.assertNotIn("Base instructions", output)
+
+    def test_prompt_formatter_displays_system_content_only_when_explicitly_requested(self):
+        messages = [{"role": "system", "content": "Private profile instructions"}]
+
+        hidden_output = format_model_request(messages, None)
+        visible_output = format_model_request(messages, None, include_system=True)
+
+        self.assertIn("<hidden; use /debug prompt --include-system to display it>", hidden_output)
+        self.assertNotIn("Private profile instructions", hidden_output)
+        self.assertIn("Private profile instructions", visible_output)
 
     @patch("cli.cli.OllamaHTTPClient")
     def test_debug_prompt_displays_user_assistant_and_tool_messages(self, mock_client_class):
