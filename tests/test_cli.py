@@ -9,11 +9,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from cli.commands import GLOBAL_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
     _handle_sources_command,
 )
+from cli.session import CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -249,21 +251,47 @@ class TestCLIExceptionHandling(unittest.TestCase):
 
 
 class TestCLICommands(unittest.TestCase):
-    def test_command_dispatcher_uses_the_first_matching_prefix(self):
+    def test_command_dispatcher_uses_the_first_matching_command(self):
         handled_commands = []
-        handlers = (
-            ("/rag filter", lambda command, _session, _context: handled_commands.append(command)),
-            (
+        command_definitions = (
+            CommandDefinition(
+                "/rag filter",
+                "/rag filter <...>",
+                "Filter RAG retrieval.",
+                "RAG",
+                lambda command, _session, _context: handled_commands.append(command),
+            ),
+            CommandDefinition(
                 "/rag",
+                "/rag <...>",
+                "Configure RAG.",
+                "RAG",
                 lambda command, _session, _context: handled_commands.append(f"generic:{command}"),
             ),
         )
 
         session = MagicMock()
         context = MagicMock()
-        self.assertTrue(_dispatch_command("/rag filter category code", session, context, handlers))
-        self.assertFalse(_dispatch_command("Hello", session, context, handlers))
+        self.assertTrue(_dispatch_command("/rag filter category code", session, context, command_definitions))
+        self.assertFalse(_dispatch_command("/ragged", session, context, command_definitions))
+        self.assertFalse(_dispatch_command("Hello", session, context, command_definitions))
         self.assertEqual(handled_commands, ["/rag filter category code"])
+
+    @patch("builtins.input", side_effect=["/help", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_help_is_generated_from_the_registered_commands(self, mock_client_cls, _mock_input):
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        output = captured_output.getvalue()
+        self.assertIn("Available commands:", output)
+        self.assertIn("CLI:", output)
+        self.assertIn("RAG:", output)
+        for command in GLOBAL_COMMANDS:
+            self.assertIn(command.usage, output)
+        mock_client_cls.return_value.stream_message.assert_not_called()
 
     def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
         captured_output = io.StringIO()
