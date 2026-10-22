@@ -30,6 +30,8 @@ from utilities.ollama_client import (
 MAX_TOOL_ITERATIONS = 5
 
 
+# Dependency injection for tests and alternative entry points: callers can replace
+# external services with deterministic implementations without changing CLI settings.
 @dataclass(frozen=True)
 class CliDependencies:
     """Optional infrastructure overrides used by tests and alternate frontends."""
