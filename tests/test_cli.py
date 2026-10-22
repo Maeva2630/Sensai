@@ -321,6 +321,7 @@ class TestCLICommands(unittest.TestCase):
         for command in GLOBAL_COMMANDS:
             self.assertIn(command.usage, output)
         mock_client_cls.return_value.stream_message.assert_not_called()
+
     def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
         captured_output = io.StringIO()
         with patch("sys.stdout", captured_output):
