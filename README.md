@@ -69,6 +69,16 @@ python3 source/main.py
 
 The application starts an interactive chat connected to the local Ollama API at `http://localhost:11434`.
 
+### CLI command help
+
+Type the following while SensAI is running to display its available commands, grouped by feature:
+
+```text
+/help
+```
+
+This help output is generated from the command registry, so a command registered by RAG, Tools, or Memory can provide its own syntax and description in one place.
+
 ### Ingest a document for RAG
 
 While the application is running, use the following command to validate, chunk, embed, and index a local document:
