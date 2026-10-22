@@ -1,13 +1,16 @@
 """Feature-specific command registries combined for the interactive CLI."""
 
-from cli.commands.memory import MEMORY_COMMAND_HANDLERS
-from cli.commands.rag import RAG_COMMAND_HANDLERS
-from cli.commands.tools import TOOL_COMMAND_HANDLERS
+from cli.commands.help import HELP_COMMANDS
+from cli.commands.memory import MEMORY_COMMANDS
+from cli.commands.rag import RAG_COMMANDS
+from cli.commands.tools import TOOL_COMMANDS
+from cli.session import CommandDefinition
 
 
-# The CLI dispatches every feature registry through this single ordered table.
-GLOBAL_COMMAND_HANDLERS = (
-    *RAG_COMMAND_HANDLERS,
-    *TOOL_COMMAND_HANDLERS,
-    *MEMORY_COMMAND_HANDLERS,
+# The CLI dispatches every feature registry through this single ordered registry.
+GLOBAL_COMMANDS: tuple[CommandDefinition, ...] = (
+    *HELP_COMMANDS,
+    *RAG_COMMANDS,
+    *TOOL_COMMANDS,
+    *MEMORY_COMMANDS,
 )
