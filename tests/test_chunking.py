@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import unittest
 from pathlib import Path
@@ -154,6 +155,27 @@ class TestDocumentChunker(unittest.TestCase):
         self.assertGreater(len(chunks), 1)
         self.assertTrue(all(len(chunk.text) <= 80 for chunk in chunks))
         self.assertTrue(all(chunk.start_line <= chunk.end_line for chunk in chunks))
+
+    def test_varied_word_sequences_keep_consistent_chunk_metadata(self):
+        random_generator = random.Random(42)
+        chunker = DocumentChunker(ChunkingConfig(chunk_size=80, chunk_overlap=15))
+
+        for word_count in range(1, 50):
+            words = ["x" * random_generator.randint(1, 12) for _ in range(word_count)]
+            document = make_document(" ".join(words))
+            chunks = chunker.chunk(document)
+
+            with self.subTest(word_count=word_count):
+                self.assertTrue(chunks)
+                self.assertEqual(chunks[0].start_char, 0)
+                self.assertEqual(chunks[-1].end_char, len(document.text))
+                self.assertEqual([chunk.chunk_index for chunk in chunks], list(range(len(chunks))))
+                self.assertEqual(len({chunk.chunk_id for chunk in chunks}), len(chunks))
+                for chunk in chunks:
+                    self.assertTrue(chunk.text.strip())
+                    self.assertLessEqual(len(chunk.text), 80)
+                    self.assertEqual(chunk.text, document.text[chunk.start_char:chunk.end_char])
+                    self.assertLessEqual(chunk.start_line, chunk.end_line)
 
 
 if __name__ == "__main__":
