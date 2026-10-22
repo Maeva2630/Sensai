@@ -24,7 +24,7 @@ from utilities.ollama_client import (
     OllamaModelNotFoundError,
 )
 from rag.context import ArchiveIndexingResult, IndexingResult, PreparedContext
-from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, IngestedDocument
+from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, DocumentIngestionError, IngestedDocument
 from rag.storage import SearchResult
 
 
@@ -248,6 +248,33 @@ class TestCLIExceptionHandling(unittest.TestCase):
             cli(dependencies=CliDependencies(rag_indexer=indexer))
 
         indexer.index_document.assert_called_once_with("docs/my guide.md")
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_multiple_indexes_quoted_paths_and_continues_after_a_failure(self, mock_client_cls):
+        documents = [
+            IngestedDocument("document-1", "first.md", "/tmp/first.md", "First", 5),
+            IngestedDocument("document-2", "third.md", "/tmp/third.md", "Third", 5),
+        ]
+        indexer = MagicMock()
+        indexer.index_document.side_effect = [
+            IndexingResult(documents[0], chunk_count=1, inserted_chunk_count=1),
+            DocumentIngestionError("missing file"),
+            IndexingResult(documents[1], chunk_count=1, inserted_chunk_count=1),
+        ]
+        captured_output = io.StringIO()
+
+        with patch(
+            "builtins.input",
+            side_effect=["/ingest --multiple first.md\t\"docs/second guide.md\" third.md", "exit"],
+        ), patch("sys.stdout", captured_output):
+            cli(dependencies=CliDependencies(rag_indexer=indexer))
+
+        self.assertEqual(
+            [call.args[0] for call in indexer.index_document.call_args_list],
+            ["first.md", "docs/second guide.md", "third.md"],
+        )
+        self.assertIn("Document indexing failed: missing file", captured_output.getvalue())
+        self.assertIn("Multiple ingestion complete: 2/3 paths indexed.", captured_output.getvalue())
 
 
 class TestCLICommands(unittest.TestCase):
