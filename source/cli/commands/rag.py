@@ -1,5 +1,7 @@
 """Terminal commands owned by the RAG feature."""
 
+import shlex
+
 from cli.session import CliCommandContext, CliSession, CommandHandler
 from rag.context import ArchiveIndexingResult, RAGIndexer
 from rag.embeddings import EmbeddingError
@@ -7,27 +9,58 @@ from rag.ingestion import DocumentIngestionError
 from rag.storage import MetadataFilter, VectorStoreError
 
 
+MULTIPLE_INGEST_FLAGS = frozenset({"-m", "--multiple"})
+
+
 def _handle_ingest_command(user_input: str, rag_indexer: RAGIndexer) -> None:
-    """Index a local document without sending the command to the chat model."""
-    command, separator, document_path = user_input.partition(" ")
-    if command != "/ingest" or not separator or not document_path.strip():
-        print("Usage: /ingest <path-to-document>")
+    """Index one document or multiple quoted paths without sending them to the model."""
+    parts = user_input.split(maxsplit=1)
+    if len(parts) != 2 or parts[0] != "/ingest" or not parts[1].strip():
+        _print_ingest_usage()
         return
 
+    arguments = parts[1].strip()
     try:
-        result = rag_indexer.index_document(document_path.strip())
+        argument_tokens = shlex.split(arguments)
+    except ValueError as error:
+        print(f"Invalid /ingest arguments: {error}")
+        return
+
+    if argument_tokens and argument_tokens[0] in MULTIPLE_INGEST_FLAGS:
+        document_paths = argument_tokens[1:]
+        if not document_paths:
+            _print_ingest_usage()
+            return
+        successful_paths = sum(_index_document(path, rag_indexer) for path in document_paths)
+        print(f"Multiple ingestion complete: {successful_paths}/{len(document_paths)} paths indexed.")
+        return
+
+    _index_document(arguments, rag_indexer)
+
+
+def _print_ingest_usage() -> None:
+    print("Usage: /ingest <path-to-document>")
+    print("       /ingest --multiple <path> [<path> ...]")
+    print("       Quote paths that contain spaces when using --multiple.")
+
+
+def _index_document(document_path: str, rag_indexer: RAGIndexer) -> bool:
+    """Index one path and return whether it completed successfully."""
+    try:
+        result = rag_indexer.index_document(document_path)
     except (DocumentIngestionError, EmbeddingError, VectorStoreError) as error:
         print(f"Document indexing failed: {error}")
-        return
+        return False
 
     if isinstance(result, ArchiveIndexingResult):
         _print_archive_indexing_summary(result)
-        return
+        return True
 
     print(
         f"Document indexed: {result.document.source_filename} "
         f"({result.chunk_count} chunks; {result.inserted_chunk_count} new chunks stored)."
     )
+    return True
 
 
 def _print_archive_indexing_summary(result: ArchiveIndexingResult) -> None:
