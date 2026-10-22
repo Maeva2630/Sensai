@@ -192,18 +192,20 @@ class RAGContextProvider:
         rejected_results: Sequence[SearchResult],
     ) -> None:
         """Log score decisions without putting rejected text into the model prompt."""
-        def describe(results: Sequence[SearchResult]) -> str:
-            return ", ".join(
-                f"{result.source_filename}:{result.chunk_id}={result.similarity_score:.3f}"
-                for result in results
-            ) or "none"
-
         logger.info(
             "RAG relevance threshold %.3f; selected [%s]; rejected [%s]",
             self.config.relevance_threshold,
-            describe(selected_results),
-            describe(rejected_results),
+            self._describe_results(selected_results),
+            self._describe_results(rejected_results),
         )
+
+    @staticmethod
+    def _describe_results(results: Sequence[SearchResult]) -> str:
+        """Format retrieval decisions without exposing chunk text in logs."""
+        return ", ".join(
+            f"{result.source_filename}:{result.chunk_id}={result.similarity_score:.3f}"
+            for result in results
+        ) or "none"
 
     def _build_message(self, results: Sequence[SearchResult]) -> str:
         parts = [self._INSTRUCTIONS]
