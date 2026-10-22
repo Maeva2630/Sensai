@@ -47,6 +47,27 @@ SensAI reads [`config.json`](config.json) when the application starts. This file
 
 Invalid values are reported at startup instead of being silently ignored.
 
+### Logging and prompt inspection
+
+SensAI writes operational logs to a local file and never prints them during a normal chat. Configure the level and destination in `config.json`:
+
+```json
+"logging": {
+  "level": "DEBUG",
+  "file_path": "logs/sensai.log"
+}
+```
+
+Supported levels are `DEBUG`, `INFO`, `WARNING`, and `ERROR`. The log records timestamps, severity, and component names for startup, commands, RAG retrieval decisions, tool execution, and handled errors. It intentionally records metadata only, not prompt content, user text, document excerpts, tool arguments, or sensitive configuration values.
+
+To inspect the complete last request sent to Ollama, use this explicit developer command in the CLI:
+
+```text
+/debug prompt
+```
+
+The output labels base system messages, RAG context, user and assistant history, and tool messages. Prompt inspection may contain sensitive conversation or document content, so it is displayed only on demand and is not copied to the log file.
+
 The project uses the `llama3.2` model by default. Download it once if it is not already available:
 
 ```bash
