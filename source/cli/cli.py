@@ -6,6 +6,7 @@ from typing import Any
 from cli.commands import GLOBAL_COMMANDS
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
+from cli.terminal import assistant_prefix, configure_line_editing, read_user_input
 from cli.tool_calls import run_tool_calls
 from config import AppConfig
 from memory.profile_manager import ProfileManager
@@ -84,7 +85,7 @@ def stream_response(
             raise OllamaResponseError("Ollama returned a response with invalid text content.")
         if content:
             if not printed_prefix:
-                print("Assistant: ", end="", flush=True)
+                print(assistant_prefix(), end="", flush=True)
                 printed_prefix = True
             print(content, end="", flush=True)
             full_response += content
@@ -151,10 +152,11 @@ def cli(
         conversation_session,
         GLOBAL_COMMANDS,
     )
+    line_editing_enabled = configure_line_editing()
 
     while True:
         try:
-            user_input = input("You: ")
+            user_input = read_user_input(line_editing_enabled)
             if not user_input.strip():
                 continue
 
@@ -190,6 +192,8 @@ def cli(
 
             for _ in range(MAX_TOOL_ITERATIONS):
                 request_messages = _request_messages(messages, rag_system_message)
+                session.last_request_messages = [message.copy() for message in request_messages]
+                session.last_rag_context = rag_system_message
                 full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
@@ -226,3 +230,6 @@ def cli(
         except OllamaError as error:
             del messages[turn_start:]
             print(f"\nWarning: {error}")
+
+        finally:
+            print()
