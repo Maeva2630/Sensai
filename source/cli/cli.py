@@ -69,6 +69,7 @@ def stream_response(
     raw_tool_calls: list[dict[str, Any]] = []
     printed_prefix = False
 
+    print()
     for line in client.stream_message(messages, tools=tools):
         if not line:
             continue
@@ -97,7 +98,7 @@ def stream_response(
         raw_tool_calls.extend(tool_calls)
 
     if printed_prefix:
-        print()
+        print("\n")
     return full_response, raw_tool_calls
 
 
