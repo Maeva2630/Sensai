@@ -16,5 +16,9 @@
     "top_k": 3,
     "max_context_characters": 4000,
     "relevance_threshold": 0.35
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/sensai.log"
   }
 }
