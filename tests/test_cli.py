@@ -8,7 +8,14 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
-from cli.cli import _handle_rag_filter_command, cli, MAX_TOOL_ITERATIONS
+from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from cli.commands import GLOBAL_COMMANDS
+from cli.commands.rag import (
+    _handle_rag_command,
+    _handle_rag_filter_command,
+    _handle_sources_command,
+)
+from cli.session import CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -19,7 +26,7 @@ from utilities.ollama_client import (
     OllamaModelNotFoundError,
 )
 from rag.context import ArchiveIndexingResult, IndexingResult, PreparedContext
-from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, IngestedDocument
+from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, DocumentIngestionError, IngestedDocument
 from rag.storage import SearchResult
 
 
@@ -101,6 +108,21 @@ class TestCLIExceptionHandling(unittest.TestCase):
         output = captured_output.getvalue()
         self.assertIn("Assistant: Hi there!", output)
 
+    @patch("builtins.input", side_effect=["Hello", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_malformed_stream_response_displays_warning_without_crashing(
+        self, mock_client_cls, mock_input
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b"this is not JSON"]
+
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        self.assertIn("Warning: Ollama returned an invalid streaming response.", captured_output.getvalue())
+
     @patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     def test_cli_offers_time_tool_for_a_time_request(self, mock_client_cls, mock_input):
@@ -170,7 +192,7 @@ class TestCLIExceptionHandling(unittest.TestCase):
         ]
         captured_output = io.StringIO()
         with patch("builtins.input", side_effect=["/ingest knowledge.txt", "/ingest knowledge.txt", "exit"]), patch("sys.stdout", captured_output):
-            cli(rag_indexer=indexer)
+            cli(dependencies=CliDependencies(rag_indexer=indexer))
 
         output = captured_output.getvalue()
         self.assertIn("Document indexed: knowledge.txt (2 chunks; 2 new chunks stored).", output)
@@ -194,7 +216,7 @@ class TestCLIExceptionHandling(unittest.TestCase):
         )
         captured_output = io.StringIO()
         with patch("builtins.input", side_effect=["/ingest project.zip", "exit"]), patch("sys.stdout", captured_output):
-            cli(rag_indexer=indexer)
+            cli(dependencies=CliDependencies(rag_indexer=indexer))
 
         output = captured_output.getvalue()
         self.assertIn("Archive indexed: project.zip (1 files indexed; 1 chunks; 1 new chunks stored).", output)
@@ -213,6 +235,117 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertEqual(category_filter.source_types, ("code",))
         self.assertIsNone(cleared_filter)
         self.assertIn("RAG metadata filter cleared.", captured_output.getvalue())
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_command_keeps_a_path_with_spaces_intact(self, mock_client_cls):
+        indexer = MagicMock()
+        document = IngestedDocument(
+            "document-id", "my guide.md", "/tmp/my guide.md", "Knowledge", 9
+        )
+        indexer.index_document.return_value = IndexingResult(document, chunk_count=1, inserted_chunk_count=1)
+
+        with patch("builtins.input", side_effect=["/ingest docs/my guide.md", "exit"]), patch(
+            "sys.stdout", io.StringIO()
+        ):
+            cli(dependencies=CliDependencies(rag_indexer=indexer))
+
+        indexer.index_document.assert_called_once_with("docs/my guide.md")
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_ingest_multiple_indexes_quoted_paths_and_continues_after_a_failure(self, mock_client_cls):
+        documents = [
+            IngestedDocument("document-1", "first.md", "/tmp/first.md", "First", 5),
+            IngestedDocument("document-2", "third.md", "/tmp/third.md", "Third", 5),
+        ]
+        indexer = MagicMock()
+        indexer.index_document.side_effect = [
+            IndexingResult(documents[0], chunk_count=1, inserted_chunk_count=1),
+            DocumentIngestionError("missing file"),
+            IndexingResult(documents[1], chunk_count=1, inserted_chunk_count=1),
+        ]
+        captured_output = io.StringIO()
+
+        with patch(
+            "builtins.input",
+            side_effect=["/ingest --multiple first.md\t\"docs/second guide.md\" third.md", "exit"],
+        ), patch("sys.stdout", captured_output):
+            cli(dependencies=CliDependencies(rag_indexer=indexer))
+
+        self.assertEqual(
+            [call.args[0] for call in indexer.index_document.call_args_list],
+            ["first.md", "docs/second guide.md", "third.md"],
+        )
+        self.assertIn("Document indexing failed: missing file", captured_output.getvalue())
+        self.assertIn("Multiple ingestion complete: 2/3 paths indexed.", captured_output.getvalue())
+
+
+class TestCLICommands(unittest.TestCase):
+    def test_command_dispatcher_uses_the_first_matching_command(self):
+        handled_commands = []
+        command_definitions = (
+            CommandDefinition(
+                "/rag filter",
+                "/rag filter <...>",
+                "Filter RAG retrieval.",
+                "RAG",
+                lambda command, _session, _context: handled_commands.append(command),
+            ),
+            CommandDefinition(
+                "/rag",
+                "/rag <...>",
+                "Configure RAG.",
+                "RAG",
+                lambda command, _session, _context: handled_commands.append(f"generic:{command}"),
+            ),
+        )
+
+        session = MagicMock()
+        context = MagicMock()
+        self.assertTrue(_dispatch_command("/rag filter category code", session, context, command_definitions))
+        self.assertFalse(_dispatch_command("/ragged", session, context, command_definitions))
+        self.assertFalse(_dispatch_command("Hello", session, context, command_definitions))
+        self.assertEqual(handled_commands, ["/rag filter category code"])
+
+    @patch("builtins.input", side_effect=["/help", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_help_is_generated_from_the_registered_commands(self, mock_client_cls, _mock_input):
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        output = captured_output.getvalue()
+        self.assertIn("Available commands:", output)
+        self.assertIn("CLI:", output)
+        self.assertIn("RAG:", output)
+        for command in GLOBAL_COMMANDS:
+            self.assertIn(command.usage, output)
+        mock_client_cls.return_value.stream_message.assert_not_called()
+
+    def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            enabled = _handle_rag_command("/rag on", False)
+            disabled = _handle_rag_command("/rag off", enabled)
+            unchanged = _handle_rag_command("/rag unexpected", disabled)
+
+        self.assertTrue(enabled)
+        self.assertFalse(disabled)
+        self.assertFalse(unchanged)
+        self.assertIn("RAG mode enabled", captured_output.getvalue())
+        self.assertIn("Usage: /rag", captured_output.getvalue())
+
+    def test_source_commands_change_state_and_report_status(self):
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            hidden = _handle_sources_command("/sources off", True)
+            unchanged = _handle_sources_command("/sources status", hidden)
+            restored = _handle_sources_command("/sources on", unchanged)
+
+        self.assertFalse(hidden)
+        self.assertFalse(unchanged)
+        self.assertTrue(restored)
+        self.assertIn("Source display is disabled.", captured_output.getvalue())
 
 class AddTool(Tool):
     name = "add"
@@ -261,7 +394,7 @@ class TestCLIToolCalling(unittest.TestCase):
     def run_cli(self, registry=None):
         captured_output = io.StringIO()
         with patch("sys.stdout", captured_output):
-            cli(registry=registry or self.registry)
+            cli(dependencies=CliDependencies(registry=registry or self.registry))
         return captured_output.getvalue()
 
     @patch("builtins.input", side_effect=["What is 17 + 25?", "exit"])
@@ -370,8 +503,13 @@ class TestCLIRAGIntegration(unittest.TestCase):
         context_provider.prepare.return_value = PreparedContext("RAG source context", [])
         captured_output = io.StringIO()
 
-        with patch("builtins.input", side_effect=["Question", "exit"]), patch("sys.stdout", captured_output):
-            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+        with patch("builtins.input", side_effect=["/rag on", "Question", "exit"]), patch("sys.stdout", captured_output):
+            cli(
+                dependencies=CliDependencies(
+                    rag_context_provider=context_provider,
+                    rag_indexer=MagicMock(),
+                ),
+            )
 
         sent_messages = mock_client.stream_message.call_args.args[0]
         self.assertEqual(sent_messages[1]["content"], "RAG source context")
@@ -385,10 +523,15 @@ class TestCLIRAGIntegration(unittest.TestCase):
         mock_client.stream_message.return_value = [b'{"message": {"content": "Il est 10:00."}}']
         context_provider = MagicMock()
 
-        with patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"]), patch(
+        with patch("builtins.input", side_effect=["/rag on", "Quelle heure est-il ?", "exit"]), patch(
             "sys.stdout", io.StringIO()
         ):
-            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+            cli(
+                dependencies=CliDependencies(
+                    rag_context_provider=context_provider,
+                    rag_indexer=MagicMock(),
+                ),
+            )
 
         context_provider.prepare.assert_not_called()
         offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
@@ -406,8 +549,13 @@ class TestCLIRAGIntegration(unittest.TestCase):
         )
         captured_output = io.StringIO()
 
-        with patch("builtins.input", side_effect=["Question", "exit"]), patch("sys.stdout", captured_output):
-            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+        with patch("builtins.input", side_effect=["/rag on", "Question", "exit"]), patch("sys.stdout", captured_output):
+            cli(
+                dependencies=CliDependencies(
+                    rag_context_provider=context_provider,
+                    rag_indexer=MagicMock(),
+                ),
+            )
 
         self.assertIn("Assistant: Grounded answer", captured_output.getvalue())
         self.assertIn("Sources: guide.md (chunks: chunk-1)", captured_output.getvalue())
@@ -425,10 +573,15 @@ class TestCLIRAGIntegration(unittest.TestCase):
         )
         captured_output = io.StringIO()
 
-        with patch("builtins.input", side_effect=["/sources off", "Question", "exit"]), patch(
+        with patch("builtins.input", side_effect=["/rag on", "/sources off", "Question", "exit"]), patch(
             "sys.stdout", captured_output
         ):
-            cli(rag_enabled=True, rag_context_provider=context_provider, rag_indexer=MagicMock())
+            cli(
+                dependencies=CliDependencies(
+                    rag_context_provider=context_provider,
+                    rag_indexer=MagicMock(),
+                ),
+            )
 
         output = captured_output.getvalue()
         self.assertIn("Source display disabled.", output)

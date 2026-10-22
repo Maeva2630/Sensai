@@ -62,8 +62,17 @@ class LocalVectorStore:
 
     def __init__(self, database_path: str | Path = "data/sensai_rag.sqlite3") -> None:
         self.database_path = Path(database_path)
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_database()
+        try:
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            self._initialize_database()
+        except OSError as error:
+            raise VectorStoreError(
+                f"Unable to prepare the local RAG database at '{self.database_path}'."
+            ) from error
+        except sqlite3.DatabaseError as error:
+            raise VectorStoreError(
+                f"The local RAG database at '{self.database_path}' is corrupted or unreadable."
+            ) from error
 
     def store_chunks(self, embedded_chunks: Iterable[EmbeddedChunk]) -> int:
         """Persist new chunks and return how many rows were inserted.
@@ -205,7 +214,12 @@ class LocalVectorStore:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
+        try:
+            connection = sqlite3.connect(self.database_path)
+        except sqlite3.Error as error:
+            raise VectorStoreError(
+                f"Unable to open the local RAG database at '{self.database_path}'."
+            ) from error
         connection.row_factory = sqlite3.Row
         return connection
 

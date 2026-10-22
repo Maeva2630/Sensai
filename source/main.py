@@ -1,21 +1,17 @@
 import argparse
+
 from cli.cli import cli
+from config import ConfigurationError, load_config
+from rag.storage import VectorStoreError
 
 def main():
     parser = argparse.ArgumentParser(description="Sensai CLI")
-    
     parser.add_argument(
         "--session",
         type=str,
         default=None,
         metavar="SESSION_ID",
         help="Resume a previous session by its ID"
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="llama3.2",
-        help="Ollama model to use (default: llama3.2)"
     )
     parser.add_argument(
         "--profile",
@@ -26,7 +22,21 @@ def main():
 
     args = parser.parse_args()
 
-    cli(model=args.model, session_id=args.session, profile_path=args.profile)
+    try:
+        app_config = load_config()
+    except ConfigurationError as error:
+        print(f"Configuration error: {error}")
+        return
+    if app_config.features.memory_enabled:
+        print("Memory is enabled in config.json but is not implemented yet; it remains inactive.")
+    try:
+        cli(
+            session_id=args.session,
+            profile_path=args.profile,
+            app_config=app_config,
+        )
+    except VectorStoreError as error:
+        print(f"RAG startup error: {error}")
 
 if __name__ == "__main__":
     main()
