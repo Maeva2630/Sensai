@@ -8,13 +8,11 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 # pyrefly: ignore [missing-import]
-from cli.cli import (
-    CliDependencies,
-    MAX_TOOL_ITERATIONS,
+from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
     _handle_sources_command,
-    cli,
 )
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
@@ -253,6 +251,22 @@ class TestCLIExceptionHandling(unittest.TestCase):
 
 
 class TestCLICommands(unittest.TestCase):
+    def test_command_dispatcher_uses_the_first_matching_prefix(self):
+        handled_commands = []
+        handlers = (
+            ("/rag filter", lambda command, _session, _context: handled_commands.append(command)),
+            (
+                "/rag",
+                lambda command, _session, _context: handled_commands.append(f"generic:{command}"),
+            ),
+        )
+
+        session = MagicMock()
+        context = MagicMock()
+        self.assertTrue(_dispatch_command("/rag filter category code", session, context, handlers))
+        self.assertFalse(_dispatch_command("Hello", session, context, handlers))
+        self.assertEqual(handled_commands, ["/rag filter category code"])
+
     def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
         captured_output = io.StringIO()
         with patch("sys.stdout", captured_output):
