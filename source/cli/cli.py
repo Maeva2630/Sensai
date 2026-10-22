@@ -3,9 +3,9 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from cli.commands import GLOBAL_COMMAND_HANDLERS
+from cli.commands import GLOBAL_COMMANDS
 from cli.model_factory import create_model_runtime
-from cli.session import CliCommandContext, CliSession, CommandHandler
+from cli.session import CliCommandContext, CliSession, CommandDefinition
 from cli.tool_calls import run_tool_calls
 from config import AppConfig
 from memory.profile_manager import ProfileManager
@@ -46,12 +46,12 @@ def _dispatch_command(
     user_input: str,
     session: CliSession,
     context: CliCommandContext,
-    command_handlers: tuple[tuple[str, CommandHandler], ...],
+    command_definitions: tuple[CommandDefinition, ...],
 ) -> bool:
     """Run the first matching command handler and report whether input was a command."""
-    for prefix, handler in command_handlers:
-        if user_input.startswith(prefix):
-            handler(user_input, session, context)
+    for command in command_definitions:
+        if command.matches(user_input):
+            command.handler(user_input, session, context)
             return True
     return False
 
@@ -169,7 +169,7 @@ def cli(
         rag_context_provider=dependencies.rag_context_provider,
         client_factory=OllamaHTTPClient,
     )
-    command_context = CliCommandContext(feature_config, runtime.rag_indexer)
+    command_context = CliCommandContext(feature_config, runtime.rag_indexer, GLOBAL_COMMANDS)
 
     while True:
         try:
@@ -183,7 +183,7 @@ def cli(
                     break
                 continue
 
-            if _dispatch_command(user_input, session, command_context, GLOBAL_COMMAND_HANDLERS):
+            if _dispatch_command(user_input, session, command_context, GLOBAL_COMMANDS):
                 continue
 
             turn_start = len(messages)

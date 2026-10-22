@@ -2,7 +2,7 @@
 
 import shlex
 
-from cli.session import CliCommandContext, CliSession, CommandHandler
+from cli.session import CliCommandContext, CliSession, CommandDefinition
 from rag.context import ArchiveIndexingResult, RAGIndexer
 from rag.embeddings import EmbeddingError
 from rag.ingestion import DocumentIngestionError
@@ -181,10 +181,34 @@ def _dispatch_sources(
     session.show_sources = _handle_sources_command(user_input, session.show_sources)
 
 
-# Specific prefixes must be listed before generic ones.
-RAG_COMMAND_HANDLERS: tuple[tuple[str, CommandHandler], ...] = (
-    ("/rag filter", _dispatch_rag_filter),
-    ("/rag", _dispatch_rag),
-    ("/ingest", _dispatch_ingest),
-    ("/sources", _dispatch_sources),
+# Specific command names must be listed before generic ones.
+RAG_COMMANDS: tuple[CommandDefinition, ...] = (
+    CommandDefinition(
+        name="/rag filter",
+        usage="/rag filter <name <source>[,<source>...]|category <type>[,<type>...]|clear>",
+        description="Restrict RAG retrieval to selected source names or categories.",
+        feature="RAG",
+        handler=_dispatch_rag_filter,
+    ),
+    CommandDefinition(
+        name="/rag",
+        usage="/rag <on|off|status>",
+        description="Enable, disable, or show the status of RAG mode.",
+        feature="RAG",
+        handler=_dispatch_rag,
+    ),
+    CommandDefinition(
+        name="/ingest",
+        usage="/ingest [--multiple] <path> [<path> ...]",
+        description="Index one document, or multiple quoted paths with --multiple.",
+        feature="RAG",
+        handler=_dispatch_ingest,
+    ),
+    CommandDefinition(
+        name="/sources",
+        usage="/sources <on|off|status>",
+        description="Show, hide, or display the status of RAG source attributions.",
+        feature="RAG",
+        handler=_dispatch_sources,
+    ),
 )
