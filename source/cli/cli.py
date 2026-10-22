@@ -10,6 +10,7 @@ from cli.tool_calls import run_tool_calls
 from config import AppConfig
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
+from observability.app_logging import get_logger
 from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import EmbeddingError
 from rag.storage import VectorStoreError
@@ -23,6 +24,7 @@ from utilities.ollama_client import (
 )
 
 MAX_TOOL_ITERATIONS = 5
+logger = get_logger("cli")
 
 # Dependency injection for tests and alternative entry points: callers can replace
 # external services with deterministic implementations without changing CLI settings.
@@ -51,6 +53,7 @@ def _dispatch_command(
     """Run the first matching command handler and report whether input was a command."""
     for command in command_definitions:
         if command.matches(user_input):
+            logger.info("command.executed name=%s feature=%s", command.name, command.feature)
             command.handler(user_input, session, context)
             return True
     return False
@@ -184,12 +187,21 @@ def cli(
                     if session.metadata_filter and not prepared_context.results:
                         print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
+                    logger.warning("rag.request_error error_type=%s", type(error).__name__)
                     del messages[turn_start:]
                     print(f"\nRAG Error: {error}")
                     continue
 
             for _ in range(MAX_TOOL_ITERATIONS):
                 request_messages = _request_messages(messages, rag_system_message)
+                session.last_request_messages = [message.copy() for message in request_messages]
+                session.last_rag_context = rag_system_message
+                logger.debug(
+                    "model.request_prepared message_count=%s rag_context=%s tool_definitions=%s",
+                    len(request_messages),
+                    rag_system_message is not None,
+                    len(tools),
+                )
                 full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
@@ -212,11 +224,13 @@ def cli(
 
 
         except (KeyboardInterrupt, EOFError):
+            logger.info("cli.interrupted")
             conversation_session.save()
             print("Exiting.")
             sys.exit(0)
 
         except OllamaConnectionError as error:
+            logger.warning("ollama.connection_error error_type=%s", type(error).__name__)
             del messages[turn_start:]
             print(
                 f"\nConnection Error: Unable to connect to Ollama server ({error}). "
@@ -224,5 +238,6 @@ def cli(
             )
 
         except OllamaError as error:
+            logger.warning("ollama.request_error error_type=%s", type(error).__name__)
             del messages[turn_start:]
             print(f"\nWarning: {error}")
