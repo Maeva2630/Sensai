@@ -161,7 +161,6 @@ def cli(
         "exit": cmd_exit,
         "quit": cmd_exit,
     }
-
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -182,7 +181,6 @@ def cli(
                 if conversation_commands[command.lower()](command_args):
                     break
                 continue
-
             if _dispatch_command(user_input, session, command_context, GLOBAL_COMMANDS):
                 continue
 
