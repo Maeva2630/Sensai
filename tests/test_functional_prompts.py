@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
-from cli.cli import cli
+from cli.cli import CliDependencies, cli
 from rag.context import PreparedContext
 from rag.storage import MetadataFilter, SearchResult
 
@@ -76,10 +76,11 @@ class TestPromptWorkflows(unittest.TestCase):
         )
 
         output = self._run_cli(
-            ["/rag filter category code", "/sources off", "Where is the parser?", "exit"],
-            rag_enabled=True,
-            rag_indexer=MagicMock(),
-            rag_context_provider=context_provider,
+            ["/rag on", "/rag filter category code", "/sources off", "Where is the parser?", "exit"],
+            dependencies=CliDependencies(
+                rag_indexer=MagicMock(),
+                rag_context_provider=context_provider,
+            ),
         )
 
         context_provider.prepare.assert_called_once_with(
@@ -105,10 +106,11 @@ class TestPromptWorkflows(unittest.TestCase):
         )
 
         output = self._run_cli(
-            ["What is the deployment port?", "exit"],
-            rag_enabled=True,
-            rag_indexer=MagicMock(),
-            rag_context_provider=context_provider,
+            ["/rag on", "What is the deployment port?", "exit"],
+            dependencies=CliDependencies(
+                rag_indexer=MagicMock(),
+                rag_context_provider=context_provider,
+            ),
         )
 
         self.assertIn("I cannot find this information in the indexed documents.", output)
