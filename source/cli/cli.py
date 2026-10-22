@@ -4,18 +4,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from cli.commands import GLOBAL_COMMAND_HANDLERS
+from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandHandler
-from config import AppConfig, RagConfig
+from cli.tool_calls import run_tool_calls
+from config import AppConfig
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
-from rag.context import (
-    RAGContextConfig,
-    RAGContextProvider,
-    RAGIndexer,
-    format_source_attribution,
-)
-from rag.embeddings import EmbeddingConfig, EmbeddingError, EmbeddingGenerator
-from rag.ingestion import DocumentIngestor
+from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
+from rag.embeddings import EmbeddingError
 from rag.storage import VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
@@ -24,8 +20,6 @@ from utilities.ollama_client import (
     OllamaError,
     OllamaHTTPClient,
     OllamaResponseError,
-    build_tool_message,
-    parse_tool_calls,
 )
 
 MAX_TOOL_ITERATIONS = 5
@@ -46,15 +40,6 @@ def default_registry(enabled: bool = True) -> ToolRegistry:
     if enabled:
         registry.register(GetTimeTool())
     return registry
-
-
-def _rag_context_config(config: RagConfig) -> RAGContextConfig:
-    """Convert application configuration into the RAG component settings."""
-    return RAGContextConfig(
-        top_k=config.top_k,
-        max_context_characters=config.max_context_characters,
-        relevance_threshold=config.relevance_threshold,
-    )
 
 
 def _dispatch_command(
@@ -113,20 +98,6 @@ def stream_response(
     return full_response, raw_tool_calls
 
 
-def run_tool_calls(
-    registry: ToolRegistry,
-    raw_tool_calls: list[dict[str, Any]],
-    messages: list[dict[str, Any]],
-) -> None:
-    """Execute each tool call and append its result to the history."""
-    for call in parse_tool_calls({"tool_calls": raw_tool_calls}):
-        print(f"[tool] {call['name']}({json.dumps(call['arguments'])})")
-        result = registry.execute(call["name"], call["arguments"])
-        label = "error" if result.is_error else "result"
-        print(f"[tool] {label}: {result.content}")
-        messages.append(build_tool_message(call["name"], result.content))
-
-
 def _request_messages(
     messages: list[dict[str, Any]],
     rag_system_message: str | None,
@@ -162,36 +133,11 @@ def cli(
     ]
     session = CliSession(show_sources=feature_config.source_display_enabled)
 
-    client = OllamaHTTPClient(
-        base_url=model_config.base_url,
-        model=model_config.chat_model,
-        options={"temperature": model_config.temperature, "num_ctx": model_config.context_window},
-    )
     registry = (
         dependencies.registry
         if dependencies.registry is not None
         else default_registry(feature_config.tools_enabled)
     )
-    rag_indexer = dependencies.rag_indexer
-    if rag_indexer is None:
-        embedding_client = OllamaHTTPClient(
-            base_url=model_config.base_url,
-            model=model_config.embedding_model,
-        )
-        rag_indexer = RAGIndexer(
-            ingestor=DocumentIngestor(),
-            embedding_generator=EmbeddingGenerator(
-                EmbeddingConfig(model=model_config.embedding_model),
-                client=embedding_client,
-            ),
-        )
-    rag_context_provider = dependencies.rag_context_provider
-    if rag_context_provider is None:
-        rag_context_provider = RAGContextProvider(
-            embedding_generator=rag_indexer.embedding_generator,
-            vector_store=rag_indexer.vector_store,
-            config=_rag_context_config(rag_config),
-        )
     def cmd_exit(_args: list[str]) -> bool:
         conversation_session.save()
         return True
@@ -216,7 +162,14 @@ def cli(
         "quit": cmd_exit,
     }
 
-    command_context = CliCommandContext(feature_config, rag_indexer)
+    runtime = create_model_runtime(
+        model_config,
+        rag_config,
+        rag_indexer=dependencies.rag_indexer,
+        rag_context_provider=dependencies.rag_context_provider,
+        client_factory=OllamaHTTPClient,
+    )
+    command_context = CliCommandContext(feature_config, runtime.rag_indexer)
 
     while True:
         try:
@@ -244,9 +197,12 @@ def cli(
             if session.rag_enabled and not tools:
                 try:
                     if session.metadata_filter is None:
-                        prepared_context = rag_context_provider.prepare(user_input)
+                        prepared_context = runtime.rag_context_provider.prepare(user_input)
                     else:
-                        prepared_context = rag_context_provider.prepare(user_input, session.metadata_filter)
+                        prepared_context = runtime.rag_context_provider.prepare(
+                            user_input,
+                            session.metadata_filter,
+                        )
                     rag_system_message = prepared_context.system_message
                     if session.metadata_filter and not prepared_context.results:
                         print("No indexed chunks match the active RAG filter.")
@@ -257,7 +213,7 @@ def cli(
 
             for _ in range(MAX_TOOL_ITERATIONS):
                 request_messages = _request_messages(messages, rag_system_message)
-                full_response, raw_tool_calls = stream_response(client, request_messages, tools)
+                full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
                 if raw_tool_calls:

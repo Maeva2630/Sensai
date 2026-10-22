@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
-from cli.cli import _rag_context_config
+from cli.model_factory import create_rag_context_config
 from config import AppConfig, ConfigurationError, FeatureConfig, RagConfig, load_config
 from main import main
 from rag.storage import VectorStoreError
@@ -19,7 +19,7 @@ from rag.storage import VectorStoreError
 
 class TestRagConfiguration(unittest.TestCase):
     def test_cli_translates_the_supported_rag_settings(self):
-        settings = _rag_context_config(
+        settings = create_rag_context_config(
             RagConfig(top_k=5, max_context_characters=1200, relevance_threshold=0.6)
         )
 
