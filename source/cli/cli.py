@@ -55,6 +55,7 @@ def _dispatch_command(
             return True
     return False
 
+
 def stream_response(
     client: OllamaHTTPClient,
     messages: list[dict[str, Any]],
