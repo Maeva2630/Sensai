@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
-from cli.cli import cli
+from cli.cli import CliDependencies, cli
 from rag.context import RAGContextProvider, RAGIndexer
 from rag.embeddings import EmbeddingConfig, EmbeddingGenerator
 from rag.storage import LocalVectorStore
@@ -47,13 +47,14 @@ class TestRAGIntegration(unittest.TestCase):
             mock_chat_client_class.return_value = chat_client
             captured_output = io.StringIO()
 
-            with patch("builtins.input", side_effect=["Where are embeddings stored?", "exit"]), patch(
+            with patch("builtins.input", side_effect=["/rag on", "Where are embeddings stored?", "exit"]), patch(
                 "sys.stdout", captured_output
             ):
                 cli(
-                    rag_enabled=True,
-                    rag_indexer=indexer,
-                    rag_context_provider=context_provider,
+                    dependencies=CliDependencies(
+                        rag_indexer=indexer,
+                        rag_context_provider=context_provider,
+                    ),
                 )
 
         self.assertEqual(indexing_result.inserted_chunk_count, 1)
