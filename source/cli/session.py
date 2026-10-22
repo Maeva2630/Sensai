@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from config import FeatureConfig
 from memory.session_manager import SessionManager
@@ -40,6 +41,8 @@ class CliSession:
     metadata_filter: MetadataFilter | None = None
     show_sources: bool = True
     exit_requested: bool = False
+    last_request_messages: list[dict[str, Any]] | None = None
+    last_rag_context: str | None = None
 
 
 @dataclass(frozen=True)
