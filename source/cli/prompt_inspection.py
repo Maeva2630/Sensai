@@ -9,8 +9,14 @@ from typing import Any
 def format_model_request(
     messages: list[dict[str, Any]],
     rag_context: str | None,
+    *,
+    include_system: bool = False,
 ) -> str:
-    """Return a readable, role-labelled representation of one Ollama request."""
+    """Return a readable, role-labelled representation of one Ollama request.
+
+    System messages can contain profile information, so their content is hidden
+    unless a developer explicitly requests it.
+    """
     if not messages:
         return "No model request has been sent in this session yet."
 
@@ -19,7 +25,10 @@ def format_model_request(
         label = _message_label(message, rag_context)
         content = message.get("content", "")
         sections.append(f"\n--- {index}. {label} ---")
-        sections.append(content if isinstance(content, str) and content else "<empty>")
+        if label == "System message" and not include_system:
+            sections.append("<hidden; use /debug prompt --include-system to display it>")
+        else:
+            sections.append(content if isinstance(content, str) and content else "<empty>")
         if message.get("tool_calls"):
             sections.append("Tool calls:")
             sections.append(json.dumps(message["tool_calls"], ensure_ascii=False, indent=2))

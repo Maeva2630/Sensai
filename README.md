@@ -60,10 +60,16 @@ SensAI writes operational logs to a local file and never prints them during a no
 
 Supported levels are `DEBUG`, `INFO`, `WARNING`, and `ERROR`. The log records timestamps, severity, and component names for startup, commands, RAG retrieval decisions, tool execution, and handled errors. It intentionally records metadata only, not prompt content, user text, document excerpts, tool arguments, or sensitive configuration values.
 
-To inspect the complete last request sent to Ollama, use this explicit developer command in the CLI:
+To inspect the last request sent to Ollama while keeping the base system prompt and profile hidden, use:
 
 ```text
 /debug prompt
+```
+
+To include the base system prompt and profile deliberately, use:
+
+```text
+/debug prompt --include-system
 ```
 
 The output labels base system messages, RAG context, user and assistant history, and tool messages. Prompt inspection may contain sensitive conversation or document content, so it is displayed only on demand and is not copied to the log file.
