@@ -163,7 +163,6 @@ def cli(
             vector_store=rag_indexer.vector_store,
             config=_rag_context_config(rag_config),
         )
-
     def cmd_exit(_args: list[str]) -> bool:
         session.save()
         return True
