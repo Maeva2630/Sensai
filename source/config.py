@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
+PROJECT_ROOT = Path(__file__).parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
 
 
 class ConfigurationError(ValueError):
