@@ -71,7 +71,6 @@ def stream_response(
     raw_tool_calls: list[dict[str, Any]] = []
     printed_prefix = False
 
-    print()
     for line in client.stream_message(messages, tools=tools):
         if not line:
             continue
@@ -100,7 +99,7 @@ def stream_response(
         raw_tool_calls.extend(tool_calls)
 
     if printed_prefix:
-        print("\n")
+        print()
     return full_response, raw_tool_calls
 
 
@@ -250,3 +249,6 @@ def cli(
             logger.warning("ollama.request_error error_type=%s", type(error).__name__)
             del messages[turn_start:]
             print(f"\nWarning: {error}")
+
+        finally:
+            print()
