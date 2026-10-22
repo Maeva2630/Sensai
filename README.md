@@ -77,6 +77,12 @@ While the application is running, use the following command to validate, chunk, 
 /ingest path/to/document.md
 ```
 
+To ingest several files in one command, use `-m` or `--multiple`. Separate paths with spaces or tabs, and quote any path containing spaces:
+
+```text
+/ingest --multiple docs/guide.md docs/architecture.pdf "docs/project notes.docx"
+```
+
 The command supports UTF-8 encoded documents and source files, text-based PDFs, Word `.docx` files, and ZIP archives containing these supported formats. Supported extensions include `.txt`, `.md`, `.pdf`, `.docx`, `.py`, `.c`, `.h`, `.cpp`, `.hpp`, `.js`, `.ts`, `.java`, `.go`, `.rs`, `.html`, `.css`, `.xml`, `.svg`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.sql`, and `.sh`. PDF extraction uses `pypdf` and extracts native PDF text only. Scanned or image-only PDFs require OCR and are not supported yet. Word extraction uses `python-docx` to read paragraphs and headings in document order. Legacy `.doc` files, embedded image OCR, comments, tracked changes, and complex layout are not supported. ZIP archives are inspected without extracting their paths to the filesystem; unsupported entries are skipped and reported. SensAI rejects archives with path traversal entries, password protection, excessive size, file counts, nesting depth, or suspicious compression ratios. SensAI reads text and source files as text only: it never executes, imports, renders, or interprets their contents. The command validates the path, file type, encoding, and content, then stores its chunks and embeddings in the local RAG database. Enter `exit` or `quit` to leave the application.
 
 ### Use documents in the chat
