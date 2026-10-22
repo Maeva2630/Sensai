@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from utilities.ollama_client import (
     OllamaHTTPClient,
-    OllamaError,
     OllamaConnectionError,
     OllamaModelNotFoundError,
     OllamaResponseError,
@@ -39,7 +38,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
 
         models = self.client.list_models()
 
-        mock_get.assert_called_once_with("http://localhost:11434/api/tags")
+        mock_get.assert_called_once_with("http://localhost:11434/api/tags", timeout=30)
         self.assertEqual(models, ["llama3.2:latest", "qwen2.5:0.5b"])
 
     @patch("requests.get")
@@ -74,6 +73,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:11434/api/embed",
             json={"model": "llama3.2", "input": "Hello world"},
+            timeout=30,
         )
         self.assertEqual(res, {"embedding": [0.1, 0.2, 0.3]})
 
@@ -106,6 +106,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": False},
+            timeout=30,
         )
         self.assertEqual(res.status_code, 200)
 
@@ -154,6 +155,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": True},
             stream=True,
+            timeout=30,
         )
         self.assertEqual(chunks, [
             b'{"message": {"content": "Hello"}}',
@@ -198,6 +200,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": False, "tools": self.TOOLS},
+            timeout=30,
         )
 
     @patch("requests.post")
@@ -214,6 +217,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": True, "tools": self.TOOLS},
             stream=True,
+            timeout=30,
         )
 
     @patch("requests.post")
@@ -225,6 +229,30 @@ class TestOllamaHTTPClient(unittest.TestCase):
         self.client.complete_message([], tools=[])
 
         self.assertNotIn("tools", mock_post.call_args.kwargs["json"])
+
+    def test_rejects_invalid_model_list_response(self):
+        with patch("requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"models": "not a list"}
+            mock_get.return_value = mock_response
+
+            with self.assertRaisesRegex(OllamaResponseError, "invalid model-list"):
+                self.client.list_models()
+
+    def test_rejects_invalid_embedding_response(self):
+        with patch("requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = ["not an object"]
+            mock_post.return_value = mock_response
+
+            with self.assertRaisesRegex(OllamaResponseError, "invalid embedding"):
+                self.client.get_embedding("Hello")
+
+    def test_rejects_non_positive_request_timeout(self):
+        with self.assertRaisesRegex(ValueError, "request_timeout"):
+            OllamaHTTPClient(request_timeout=0)
 
     def test_parse_tool_calls_from_message(self):
         message = {"role": "assistant", "content": "", "tool_calls": [
@@ -255,6 +283,25 @@ class TestOllamaHTTPClient(unittest.TestCase):
         self.assertEqual(parse_tool_calls({"role": "assistant", "content": "Hi"}), [])
         self.assertEqual(parse_tool_calls({}), [])
         self.assertEqual(parse_tool_calls(None), [])
+
+    def test_parse_tool_calls_ignores_malformed_calls(self):
+        message = {
+            "tool_calls": [
+                None,
+                {"function": None},
+                {"function": {"name": ""}},
+                {"function": {"name": "add", "arguments": [1, 2]}},
+                {"function": {"name": "get_time", "arguments": {}}},
+            ]
+        }
+
+        self.assertEqual(
+            parse_tool_calls(message),
+            [{"name": "add", "arguments": {}}, {"name": "get_time", "arguments": {}}],
+        )
+
+    def test_parse_tool_calls_ignores_a_non_list_tool_calls_value(self):
+        self.assertEqual(parse_tool_calls({"tool_calls": {"unexpected": "object"}}), [])
 
     def test_build_tool_message(self):
         self.assertEqual(

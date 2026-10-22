@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from rag.chunking import DocumentChunk
 from rag.embeddings import EmbeddedChunk, QueryEmbedding
-from rag.storage import InvalidVectorError, LocalVectorStore, MetadataFilter
+from rag.storage import InvalidVectorError, LocalVectorStore, MetadataFilter, VectorStoreError
 
 
 def embedded_chunk(
@@ -168,6 +168,13 @@ class TestLocalVectorStore(unittest.TestCase):
             columns = {row[1] for row in connection.execute("PRAGMA table_info(chunks)")}
 
         self.assertTrue({"language", "start_line", "end_line"}.issubset(columns))
+
+    def test_corrupted_database_fails_with_a_clear_error(self):
+        corrupted_database_path = Path(self.temporary_directory.name) / "corrupted.sqlite3"
+        corrupted_database_path.write_bytes(b"not a SQLite database")
+
+        with self.assertRaisesRegex(VectorStoreError, "corrupted or unreadable"):
+            LocalVectorStore(corrupted_database_path)
 
 
 if __name__ == "__main__":
