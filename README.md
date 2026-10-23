@@ -47,6 +47,14 @@ SensAI reads [`config.json`](config.json) when the application starts. This file
 
 Invalid values are reported at startup instead of being silently ignored.
 
+### Teacher-assistant persona
+
+New conversations use SensAI's built-in teacher-assistant persona. It supports educators
+with lesson preparation, explanations, activities, quizzes, and grading criteria while
+respecting RAG and tool instructions. The current persona prompt is maintained in
+`source/personas/teacher_assistant.py`; configurable and runtime-switchable personas are
+a later step.
+
 ### Logging and prompt inspection
 
 SensAI writes operational logs to a local file and never prints them during a normal chat. Configure the level and destination in `config.json`:
