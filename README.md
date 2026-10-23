@@ -74,6 +74,31 @@ To include the base system prompt and profile deliberately, use:
 
 The output labels base system messages, RAG context, user and assistant history, and tool messages. Prompt inspection may contain sensitive conversation or document content, so it is displayed only on demand and is not copied to the log file.
 
+### Local monitoring dashboard
+
+SensAI can persist privacy-preserving interaction metrics locally. Monitoring is disabled by default. Enable it in `config.json`:
+
+```json
+"monitoring": {
+  "enabled": true,
+  "database_path": "data/sensai_monitoring.sqlite3",
+  "retention_days": 30,
+  "prompt_version": "teacher-v1"
+}
+```
+
+When enabled, SensAI stores timestamps, components, model names, enabled features, prompt versions, request status, latency, estimated input/output tokens, retrieved RAG chunk counts, tool names, tool status, and tool duration. It does not store raw prompts, responses, document excerpts, profiles, tool arguments, tool results, secrets, or sensitive configuration values.
+
+Use `/metrics` to display a local terminal dashboard. It includes model-call volume, average and p95 latency, error rate, RAG activity, estimated token counts, tool outcomes, and calls over time. Optional filters include `--from`, `--to`, `--model`, `--prompt-version`, `--feature`, `--tool`, and `--error`:
+
+```text
+/metrics --from 2026-10-01 --model llama3.2 --prompt-version teacher-v1
+/metrics --feature rag
+/metrics --tool get_time
+```
+
+Token values are estimates based on request and response length when Ollama does not provide provider-native token counts.
+
 The project uses the `llama3.2` model by default. Download it once if it is not already available:
 
 ```bash
