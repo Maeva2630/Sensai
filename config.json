@@ -9,7 +9,7 @@
   "features": {
     "rag_enabled": true,
     "tools_enabled": true,
-    "memory_enabled": false,
+    "memory_enabled": true,
     "source_display_enabled": true
   },
   "rag": {
