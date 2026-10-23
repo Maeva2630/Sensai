@@ -42,10 +42,19 @@ class RagConfig:
 
 
 @dataclass(frozen=True)
+class LoggingConfig:
+    """Controls file-only diagnostic logs without exposing them in the CLI."""
+
+    level: str = "INFO"
+    file_path: str = "logs/sensai.log"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     model: ModelConfig = ModelConfig()
     features: FeatureConfig = FeatureConfig()
     rag: RagConfig = RagConfig()
+    logging: LoggingConfig = LoggingConfig()
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
@@ -63,11 +72,21 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     model = _read_model(_section(data, "model"))
     features = _read_features(_section(data, "features"))
     rag = _read_rag(_section(data, "rag"))
-    return AppConfig(model=model, features=features, rag=rag)
+    logging = _read_logging(_optional_section(data, "logging"))
+    return AppConfig(model=model, features=features, rag=rag, logging=logging)
 
 
 def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     section = data.get(name)
+    if not isinstance(section, Mapping):
+        raise ConfigurationError(f"Configuration section '{name}' must be an object.")
+    return section
+
+
+def _optional_section(data: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
+    section = data.get(name)
+    if section is None:
+        return None
     if not isinstance(section, Mapping):
         raise ConfigurationError(f"Configuration section '{name}' must be an object.")
     return section
@@ -133,3 +152,13 @@ def _read_rag(section: Mapping[str, Any]) -> RagConfig:
         max_context_characters=_integer(section, "max_context_characters", 300),
         relevance_threshold=threshold,
     )
+
+
+def _read_logging(section: Mapping[str, Any] | None) -> LoggingConfig:
+    """Read safe logging options while keeping older configuration files compatible."""
+    if section is None:
+        return LoggingConfig()
+    level = _string(section, "level").upper()
+    if level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+        raise ConfigurationError("'level' must be DEBUG, INFO, WARNING, or ERROR.")
+    return LoggingConfig(level=level, file_path=_string(section, "file_path"))

@@ -56,6 +56,10 @@ class TestConfigurationLoading(unittest.TestCase):
                 "max_context_characters": 4000,
                 "relevance_threshold": 0.35,
             },
+            "logging": {
+                "level": "DEBUG",
+                "file_path": "logs/test.log",
+            },
         }
         for section, values in (changes or {}).items():
             data[section].update(values)
@@ -70,12 +74,24 @@ class TestConfigurationLoading(unittest.TestCase):
         self.assertEqual(configuration.model.context_window, 4096)
         self.assertTrue(configuration.features.rag_enabled)
         self.assertEqual(configuration.rag.top_k, 3)
+        self.assertEqual(configuration.logging.level, "DEBUG")
 
     def test_rejects_invalid_json(self):
         self.config_path.write_text("{ not valid JSON", encoding="utf-8")
 
         with self.assertRaisesRegex(ConfigurationError, "Invalid JSON"):
             load_config(self.config_path)
+
+    def test_uses_safe_logging_defaults_when_the_optional_section_is_absent(self):
+        self.write_config()
+        data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        del data["logging"]
+        self.config_path.write_text(json.dumps(data), encoding="utf-8")
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.logging.level, "INFO")
+        self.assertEqual(configuration.logging.file_path, "logs/sensai.log")
 
     def test_rejects_missing_required_section(self):
         self.write_config()
@@ -94,6 +110,7 @@ class TestConfigurationLoading(unittest.TestCase):
             ({"features": {"rag_enabled": "yes"}}, "rag_enabled"),
             ({"rag": {"relevance_threshold": -1.1}}, "relevance_threshold"),
             ({"rag": {"top_k": 0}}, "top_k"),
+            ({"logging": {"level": "TRACE"}}, "level"),
         )
         for changes, expected_field in cases:
             with self.subTest(changes=changes):
@@ -114,7 +131,7 @@ class TestApplicationStartup(unittest.TestCase):
         self.assertIn("Configuration error: invalid value", output.getvalue())
 
     def test_main_reports_corrupted_rag_database_without_a_traceback(self):
-        with patch("main.load_config", return_value=AppConfig()), patch(
+        with patch("main.load_config", return_value=AppConfig()), patch("main.configure_logging"), patch(
             "main.cli", side_effect=VectorStoreError("database is corrupted")
         ), patch("sys.stdout", new_callable=io.StringIO) as output:
             with patch("sys.argv", ["main.py"]):
@@ -124,7 +141,7 @@ class TestApplicationStartup(unittest.TestCase):
 
     def test_main_warns_when_memory_is_enabled_but_still_starts(self):
         configuration = AppConfig(features=FeatureConfig(memory_enabled=True))
-        with patch("main.load_config", return_value=configuration), patch(
+        with patch("main.load_config", return_value=configuration), patch("main.configure_logging"), patch(
             "main.cli"
         ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output:
             with patch("sys.argv", ["main.py"]):
