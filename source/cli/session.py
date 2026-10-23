@@ -47,6 +47,28 @@ class CliSession:
     last_request_messages: list[dict[str, Any]] | None = None
     last_rag_context: str | None = None
     active_persona_id: str = ""
+    last_prompt_tokens: int = 0
+    last_completion_tokens: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    context_window: int = 4096
+
+    @property
+    def last_turn_tokens(self) -> int:
+        """Return total tokens consumed in the most recent interaction."""
+        return self.last_prompt_tokens + self.last_completion_tokens
+
+    @property
+    def total_session_tokens(self) -> int:
+        """Return cumulative tokens consumed across the active session."""
+        return self.total_prompt_tokens + self.total_completion_tokens
+
+    def record_turn_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
+        """Update per-turn and cumulative session token counters."""
+        self.last_prompt_tokens = max(0, prompt_tokens)
+        self.last_completion_tokens = max(0, completion_tokens)
+        self.total_prompt_tokens += self.last_prompt_tokens
+        self.total_completion_tokens += self.last_completion_tokens
 
 
 @dataclass(frozen=True)
