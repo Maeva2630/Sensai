@@ -62,7 +62,7 @@ class TestConfigurationLoading(unittest.TestCase):
             },
         }
         for section, values in (changes or {}).items():
-            data[section].update(values)
+            data.setdefault(section, {}).update(values)
         self.config_path.write_text(json.dumps(data), encoding="utf-8")
 
     def test_loads_a_complete_valid_configuration(self):
@@ -75,6 +75,7 @@ class TestConfigurationLoading(unittest.TestCase):
         self.assertTrue(configuration.features.rag_enabled)
         self.assertEqual(configuration.rag.top_k, 3)
         self.assertEqual(configuration.logging.level, "DEBUG")
+        self.assertEqual(configuration.personas.active_persona, "teacher-assistant")
 
     def test_rejects_invalid_json(self):
         self.config_path.write_text("{ not valid JSON", encoding="utf-8")
@@ -111,11 +112,95 @@ class TestConfigurationLoading(unittest.TestCase):
             ({"rag": {"relevance_threshold": -1.1}}, "relevance_threshold"),
             ({"rag": {"top_k": 0}}, "top_k"),
             ({"logging": {"level": "TRACE"}}, "level"),
+            ({"personas": {"active_persona": "missing", "profiles": []}}, "profiles"),
         )
         for changes, expected_field in cases:
             with self.subTest(changes=changes):
                 self.write_config(changes)
                 with self.assertRaisesRegex(ConfigurationError, expected_field):
+                    load_config(self.config_path)
+
+    def test_loads_and_selects_a_configured_persona(self):
+        self.write_config(
+            {
+                "personas": {
+                    "active_persona": "math-assistant",
+                    "profiles": [
+                        {
+                            "identifier": "math-assistant",
+                            "display_name": "Mathematics assistant",
+                            "role": "Supports mathematics teachers",
+                            "tone": "Precise and practical",
+                            "system_prompt": "Support mathematics teachers.",
+                            "response_scope": "Lesson preparation and assessment.",
+                        },
+                        {
+                            "identifier": "history-assistant",
+                            "display_name": "History assistant",
+                            "role": "Supports history teachers",
+                            "tone": "Clear and contextual",
+                            "system_prompt": "Support history teachers.",
+                            "response_scope": "Lesson preparation and assessment.",
+                        },
+                    ],
+                }
+            }
+        )
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.personas.active.display_name, "Mathematics assistant")
+        self.assertEqual(configuration.personas.active.system_prompt, "Support mathematics teachers.")
+        self.assertIn("Role: Supports mathematics teachers", configuration.personas.active.system_instructions)
+
+    def test_loads_a_persona_prompt_from_a_file_relative_to_the_configuration(self):
+        prompts_directory = self.config_path.parent / "prompts"
+        prompts_directory.mkdir()
+        (prompts_directory / "teacher.txt").write_text("Prompt loaded from a file.", encoding="utf-8")
+        self.write_config(
+            {
+                "personas": {
+                    "active_persona": "teacher-assistant",
+                    "profiles": [
+                        {
+                            "identifier": "teacher-assistant",
+                            "display_name": "Teacher assistant",
+                            "role": "Supports teachers",
+                            "tone": "Practical",
+                            "prompt_file": "prompts/teacher.txt",
+                            "response_scope": "Teaching support.",
+                        }
+                    ],
+                }
+            }
+        )
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.personas.active.system_prompt, "Prompt loaded from a file.")
+
+    def test_rejects_personas_with_both_or_no_prompt_source(self):
+        for prompt_fields in ({}, {"system_prompt": "Inline", "prompt_file": "prompt.txt"}):
+            with self.subTest(prompt_fields=prompt_fields):
+                self.write_config(
+                    {
+                        "personas": {
+                            "active_persona": "teacher-assistant",
+                            "profiles": [
+                                {
+                                    "identifier": "teacher-assistant",
+                                    "display_name": "Teacher assistant",
+                                    "role": "Supports teachers",
+                                    "tone": "Practical",
+                                    "response_scope": "Teaching support.",
+                                    **prompt_fields,
+                                }
+                            ],
+                        }
+                    }
+                )
+
+                with self.assertRaisesRegex(ConfigurationError, "exactly one"):
                     load_config(self.config_path)
 
 
