@@ -51,6 +51,32 @@ def _dispatch_load(
     print(f"Session {session_id} loaded.")
 
 
+def _dispatch_tokens(
+    user_input: str,
+    session: CliSession,
+    context: CliCommandContext,
+) -> None:
+    """Display token usage for the last turn, active context window, and session."""
+    if not context.feature_config.memory_enabled:
+        print("Memory is disabled in config.json.")
+        return
+    if user_input.strip() != "/tokens":
+        print("Usage: /tokens")
+        return
+    context_tokens = session.last_turn_tokens
+    window = max(1, session.context_window)
+    percentage = (context_tokens / window) * 100
+    print("Token usage:")
+    print(
+        f"- Last turn: {session.last_prompt_tokens} prompt + "
+        f"{session.last_completion_tokens} completion = {session.last_turn_tokens} tokens"
+    )
+    print(f"- Context window: {context_tokens} / {session.context_window} tokens ({percentage:.1f}%)")
+    print(
+        f"- Session total: {session.total_session_tokens} tokens "
+        f"({session.total_prompt_tokens} prompt, {session.total_completion_tokens} completion)"
+    )
+
 
 MEMORY_COMMANDS: tuple[CommandDefinition, ...] = (
     CommandDefinition(
@@ -66,5 +92,12 @@ MEMORY_COMMANDS: tuple[CommandDefinition, ...] = (
         description="Load a saved conversation by its identifier.",
         feature="Memory",
         handler=_dispatch_load,
+    ),
+    CommandDefinition(
+        name="/tokens",
+        usage="/tokens",
+        description="Display per-turn, context window, and cumulative session token usage.",
+        feature="Memory",
+        handler=_dispatch_tokens,
     ),
 )
