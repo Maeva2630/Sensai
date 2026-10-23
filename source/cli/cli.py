@@ -75,6 +75,7 @@ def stream_response(
     client: OllamaHTTPClient,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    token_counts: dict[str, int] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Stream one model response and return its text and requested tool calls."""
     full_response = ""
@@ -107,6 +108,13 @@ def stream_response(
         if not isinstance(tool_calls, list):
             raise OllamaResponseError("Ollama returned invalid tool calls in a streaming response.")
         raw_tool_calls.extend(tool_calls)
+        if token_counts is not None:
+            prompt_eval_count = payload.get("prompt_eval_count")
+            if isinstance(prompt_eval_count, int) and not isinstance(prompt_eval_count, bool) and prompt_eval_count >= 0:
+                token_counts["prompt_tokens"] = prompt_eval_count
+            eval_count = payload.get("eval_count")
+            if isinstance(eval_count, int) and not isinstance(eval_count, bool) and eval_count >= 0:
+                token_counts["completion_tokens"] = eval_count
 
     if printed_prefix:
         print()
@@ -149,6 +157,7 @@ def cli(
     session = CliSession(
         show_sources=feature_config.source_display_enabled,
         active_persona_id=app_config.personas.active.identifier,
+        context_window=model_config.context_window,
     )
 
     registry = (
@@ -231,11 +240,13 @@ def cli(
                     len(tools),
                 )
                 started_at = perf_counter()
+                token_counts: dict[str, int] = {}
                 try:
                     full_response, raw_tool_calls = stream_response(
                         runtime.chat_client,
                         request_messages,
                         tools,
+                        token_counts=token_counts,
                     )
                 except OllamaError as error:
                     _record_model_interaction(
@@ -251,6 +262,9 @@ def cli(
                         type(error).__name__,
                     )
                     raise
+                prompt_tokens = token_counts.get("prompt_tokens", estimate_tokens(request_messages))
+                completion_tokens = token_counts.get("completion_tokens", estimate_tokens(full_response))
+                session.record_turn_tokens(prompt_tokens, completion_tokens)
                 interaction_id = _record_model_interaction(
                     command_context,
                     model_config.chat_model,
