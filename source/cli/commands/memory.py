@@ -14,6 +14,9 @@ def _dispatch_save(
     context: CliCommandContext,
 ) -> None:
     """Persist the current conversation without leaving the CLI."""
+    if not context.feature_config.memory_enabled:
+        print("Memory is disabled in config.json.")
+        return
     context.conversation_session.save()
 
 
@@ -23,6 +26,9 @@ def _dispatch_load(
     context: CliCommandContext,
 ) -> None:
     """Load a saved conversation by its identifier."""
+    if not context.feature_config.memory_enabled:
+        print("Memory is disabled in config.json.")
+        return
     _, *arguments = user_input.split(maxsplit=1)
     if not arguments or not arguments[0].strip():
         print("Usage: /load <session_id>")
