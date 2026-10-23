@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from tools.base import Tool, ToolResult
 
 _JSON_TYPES = {
+    "null": type(None),
     "string": str,
     "integer": int,
     "number": (int, float),
@@ -10,6 +11,19 @@ _JSON_TYPES = {
     "array": list,
     "object": dict,
 }
+
+
+def _check_type(name: str, value: Any, declared: Any) -> Optional[str]:
+    """Check a value against a JSON schema `type` (a name or a list of names)."""
+    names = declared if isinstance(declared, list) else [declared]
+    expected = tuple(_JSON_TYPES[n] for n in names if isinstance(n, str) and n in _JSON_TYPES)
+    if not expected:
+        return None  # no usable type constraint (e.g. anyOf): accept
+    # bool is a subclass of int, but is not a valid number
+    is_bool_as_number = isinstance(value, bool) and "boolean" not in names
+    if is_bool_as_number or not isinstance(value, expected):
+        return f"argument '{name}' must be of type {' or '.join(n for n in names if isinstance(n, str))}"
+    return None
 
 
 def validate_arguments(schema: Dict[str, Any], arguments: Any) -> Optional[str]:
@@ -24,14 +38,15 @@ def validate_arguments(schema: Dict[str, Any], arguments: Any) -> Optional[str]:
 
     for name, value in arguments.items():
         if name not in properties:
+            if schema.get("additionalProperties"):
+                continue
             return f"unknown argument '{name}'"
         spec = properties[name]
-        expected = _JSON_TYPES.get(spec.get("type"))
-        if expected:
-            # bool is a subclass of int, but is not a valid number
-            is_bool_as_number = isinstance(value, bool) and spec.get("type") in ("integer", "number")
-            if is_bool_as_number or not isinstance(value, expected):
-                return f"argument '{name}' must be of type {spec['type']}"
+        if not isinstance(spec, dict):
+            continue  # e.g. the JSON schema shorthand `true`
+        error = _check_type(name, value, spec.get("type"))
+        if error:
+            return error
         if "enum" in spec and value not in spec["enum"]:
             return f"argument '{name}' must be one of {spec['enum']}"
     return None
@@ -77,3 +92,14 @@ class ToolRegistry:
             return ToolResult(str(tool.execute(arguments)))
         except Exception as e:
             return ToolResult(f"Tool '{name}' failed: {e}", is_error=True)
+
+
+def format_tool_listing(tools: List[Tool]) -> str:
+    """Human-readable list of tools with their origin (`native` or an MCP server)."""
+    if not tools:
+        return "No tools available."
+    lines = []
+    for tool in tools:
+        origin = getattr(tool, "server", None) or "native"
+        lines.append(f"- {tool.name} [{origin}]: {tool.description}")
+    return "\n".join(lines)

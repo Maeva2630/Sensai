@@ -56,6 +56,20 @@ class TestValidateArguments(unittest.TestCase):
         self.assertIsNone(validate_arguments(schema, {"unit": "c"}))
         self.assertIn("one of", validate_arguments(schema, {"unit": "k"}))
 
+    def test_type_list_accepts_any_listed_type(self):
+        schema = {"type": "object", "properties": {"note": {"type": ["string", "null"]}}}
+        self.assertIsNone(validate_arguments(schema, {"note": "hi"}))
+        self.assertIsNone(validate_arguments(schema, {"note": None}))
+        self.assertIn("string or null", validate_arguments(schema, {"note": 3}))
+
+    def test_additional_properties_allowed_when_declared(self):
+        schema = {"type": "object", "properties": {}, "additionalProperties": True}
+        self.assertIsNone(validate_arguments(schema, {"anything": 1}))
+
+    def test_property_without_type_is_accepted(self):
+        schema = {"type": "object", "properties": {"x": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "y": True}}
+        self.assertIsNone(validate_arguments(schema, {"x": 1, "y": "free"}))
+
     def test_arguments_must_be_an_object(self):
         self.assertIn("object", validate_arguments(AddTool.parameters, "not a dict"))
 

@@ -1,18 +1,30 @@
+import atexit
 import json
+import sqlite3
 import sys
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from cli.commands import GLOBAL_COMMANDS
+from cli.commands.help import display_unknown_command
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 from cli.terminal import assistant_prefix, configure_line_editing, read_user_input
 from cli.tool_calls import run_tool_calls
-from config import AppConfig
+from config import AppConfig, FeatureConfig
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
+from observability.app_logging import get_logger
+from observability.monitoring import (
+    DisabledMonitoringStore,
+    MonitoringStore,
+    create_monitoring_store,
+    estimate_tokens,
+)
 from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import EmbeddingError
+from mcp.manager import MCPManager
 from rag.storage import VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
@@ -24,6 +36,7 @@ from utilities.ollama_client import (
 )
 
 MAX_TOOL_ITERATIONS = 5
+logger = get_logger("cli")
 
 # Dependency injection for tests and alternative entry points: callers can replace
 # external services with deterministic implementations without changing CLI settings.
@@ -52,6 +65,7 @@ def _dispatch_command(
     """Run the first matching command handler and report whether input was a command."""
     for command in command_definitions:
         if command.matches(user_input):
+            logger.info("command.executed name=%s feature=%s", command.name, command.feature)
             command.handler(user_input, session, context)
             return True
     return False
@@ -115,6 +129,7 @@ def cli(
     *,
     session_id: str | None = None,
     profile_path: str | None = None,
+    mcp_manager: MCPManager | None = None,
 ) -> None:
     """Run the interactive CLI using application settings and optional wiring overrides."""
     app_config = app_config or AppConfig()
@@ -129,16 +144,22 @@ def cli(
     except FileNotFoundError as error:
         print(f"Error: {error}")
         sys.exit(1)
-    messages = list(loaded) if loaded else [
-        {"role": "system", "content": profile_manager.build_system_prompt()}
-    ]
-    session = CliSession(show_sources=feature_config.source_display_enabled)
+    messages = list(loaded) if loaded else []
+    _ensure_base_system_message(messages, profile_manager, app_config.personas.active.system_instructions)
+    session = CliSession(
+        show_sources=feature_config.source_display_enabled,
+        active_persona_id=app_config.personas.active.identifier,
+    )
 
     registry = (
         dependencies.registry
         if dependencies.registry is not None
         else default_registry(feature_config.tools_enabled)
     )
+    mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file()
+    for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
+        print(f"Warning: {warning}")
+    atexit.register(mcp_manager.close)
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -151,6 +172,11 @@ def cli(
         runtime.rag_indexer,
         conversation_session,
         GLOBAL_COMMANDS,
+        registry,
+        _create_monitoring_store(app_config),
+        app_config.personas,
+        profile_manager,
+        messages,
     )
     line_editing_enabled = configure_line_editing()
 
@@ -163,6 +189,9 @@ def cli(
             if _dispatch_command(user_input, session, command_context, GLOBAL_COMMANDS):
                 if session.exit_requested:
                     break
+                continue
+            if user_input.startswith("/"):
+                display_unknown_command(user_input, GLOBAL_COMMANDS)
                 continue
 
             turn_start = len(messages)
@@ -186,6 +215,7 @@ def cli(
                     if session.metadata_filter and not prepared_context.results:
                         print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
+                    logger.warning("rag.request_error error_type=%s", type(error).__name__)
                     del messages[turn_start:]
                     print(f"\nRAG Error: {error}")
                     continue
@@ -195,6 +225,44 @@ def cli(
                 session.last_request_messages = [message.copy() for message in request_messages]
                 session.last_rag_context = rag_system_message
                 full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
+                logger.debug(
+                    "model.request_prepared message_count=%s rag_context=%s tool_definitions=%s",
+                    len(request_messages),
+                    rag_system_message is not None,
+                    len(tools),
+                )
+                started_at = perf_counter()
+                try:
+                    full_response, raw_tool_calls = stream_response(
+                        runtime.chat_client,
+                        request_messages,
+                        tools,
+                    )
+                except OllamaError as error:
+                    _record_model_interaction(
+                        command_context,
+                        model_config.chat_model,
+                        app_config.monitoring.prompt_version,
+                        feature_config,
+                        request_messages,
+                        "",
+                        prepared_context,
+                        (perf_counter() - started_at) * 1000,
+                        "error",
+                        type(error).__name__,
+                    )
+                    raise
+                interaction_id = _record_model_interaction(
+                    command_context,
+                    model_config.chat_model,
+                    app_config.monitoring.prompt_version,
+                    feature_config,
+                    request_messages,
+                    full_response,
+                    prepared_context,
+                    (perf_counter() - started_at) * 1000,
+                    "success",
+                )
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
                 if raw_tool_calls:
@@ -207,7 +275,13 @@ def cli(
                         if attribution:
                             print(f"\n{attribution}")
                     break
-                run_tool_calls(registry, raw_tool_calls, messages)
+                run_tool_calls(
+                    registry,
+                    raw_tool_calls,
+                    messages,
+                    command_context.monitoring_store,
+                    interaction_id,
+                )
             else:
                 print(f"\nWarning: stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer.")
 
@@ -216,11 +290,13 @@ def cli(
 
 
         except (KeyboardInterrupt, EOFError):
+            logger.info("cli.interrupted")
             conversation_session.save()
             print("Exiting.")
             sys.exit(0)
 
         except OllamaConnectionError as error:
+            logger.warning("ollama.connection_error error_type=%s", type(error).__name__)
             del messages[turn_start:]
             print(
                 f"\nConnection Error: Unable to connect to Ollama server ({error}). "
@@ -228,8 +304,65 @@ def cli(
             )
 
         except OllamaError as error:
+            logger.warning("ollama.request_error error_type=%s", type(error).__name__)
             del messages[turn_start:]
             print(f"\nWarning: {error}")
 
         finally:
             print()
+
+
+def _create_monitoring_store(app_config: AppConfig) -> MonitoringStore | DisabledMonitoringStore:
+    """Create optional local metrics storage without preventing the CLI from starting."""
+    try:
+        return create_monitoring_store(app_config.monitoring)
+    except (OSError, sqlite3.Error) as error:
+        logger.warning("monitoring.disabled error_type=%s", type(error).__name__)
+        print(f"Warning: monitoring is disabled because its database could not be opened: {error}")
+        return DisabledMonitoringStore()
+
+
+def _ensure_base_system_message(
+    messages: list[dict[str, Any]],
+    profile_manager: ProfileManager,
+    persona_prompt: str,
+) -> None:
+    """Insert the active persona when a loaded history has no system message."""
+    system_message = {"role": "system", "content": profile_manager.build_system_prompt(persona_prompt)}
+    if messages and messages[0].get("role") == "system":
+        messages[0] = system_message
+    else:
+        messages.insert(0, system_message)
+
+
+def _record_model_interaction(
+    command_context: CliCommandContext,
+    model: str,
+    prompt_version: str,
+    feature_config: FeatureConfig,
+    request_messages: list[dict[str, Any]],
+    response_text: str,
+    prepared_context: Any,
+    latency_ms: float,
+    status: str,
+    error_category: str | None = None,
+) -> int:
+    """Record safe request metadata without persisting user or model content."""
+    if command_context.monitoring_store is None:
+        return 0
+    try:
+        return command_context.monitoring_store.record_model_interaction(
+            model=model,
+            features=feature_config,
+            prompt_version=prompt_version,
+            status=status,
+            latency_ms=latency_ms,
+            input_tokens=estimate_tokens(request_messages),
+            output_tokens=estimate_tokens(response_text) if status == "success" else None,
+            rag_chunk_count=len(prepared_context.results) if prepared_context is not None else 0,
+            error_category=error_category,
+        )
+    except (OSError, sqlite3.Error) as error:
+        # Metrics are optional: an unavailable local database must not interrupt chat.
+        logger.warning("monitoring.write_failed error_type=%s", type(error).__name__)
+        return 0

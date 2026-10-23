@@ -9,13 +9,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from config import AppConfig, FeatureConfig, PersonaConfig, PersonasConfig
 from cli.commands import GLOBAL_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
     _handle_sources_command,
 )
-from cli.session import CommandDefinition
+from cli.session import CliCommandContext, CliSession, CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -52,10 +53,29 @@ class TestCLIPromptInjection(unittest.TestCase):
         mock_client_cls.return_value = mock_client
 
         with patch("sys.stdout", io.StringIO()):
-            cli(profile_path="custom_profile.json")
+            cli(
+                profile_path="custom_profile.json",
+                app_config=AppConfig(
+                    personas=PersonasConfig(
+                        active_persona="math-assistant",
+                        profiles=(
+                            PersonaConfig(
+                                identifier="math-assistant",
+                                display_name="Mathematics assistant",
+                                role="Supports mathematics teachers",
+                                tone="Precise and practical",
+                                system_prompt="Configured persona prompt",
+                                response_scope="Lesson preparation.",
+                            ),
+                        ),
+                    )
+                ),
+            )
 
         mock_pm_cls.assert_called_once_with(profile_path="custom_profile.json")
-        mock_pm.build_system_prompt.assert_called_once()
+        configured_instructions = mock_pm.build_system_prompt.call_args.args[0]
+        self.assertIn("Mathematics assistant", configured_instructions)
+        self.assertIn("Configured persona prompt", configured_instructions)
 
 
 class TestCLIExceptionHandling(unittest.TestCase):
@@ -322,6 +342,26 @@ class TestCLICommands(unittest.TestCase):
             self.assertIn(command.usage, output)
         mock_client_cls.return_value.stream_message.assert_not_called()
 
+    @patch("builtins.input", side_effect=["/metric", "/raggg", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_unknown_slash_commands_show_help_without_contacting_the_model(
+        self,
+        mock_client_cls,
+        _mock_input,
+    ):
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        output = captured_output.getvalue()
+        self.assertIn("Unknown command: /metric", output)
+        self.assertIn("Did you mean: /metrics?", output)
+        self.assertIn("Unknown command: /raggg", output)
+        self.assertIn("Did you mean: /rag?", output)
+        self.assertIn("Type /help to list available commands.", output)
+        mock_client_cls.return_value.stream_message.assert_not_called()
+
     def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
         captured_output = io.StringIO()
         with patch("sys.stdout", captured_output):
@@ -346,6 +386,100 @@ class TestCLICommands(unittest.TestCase):
         self.assertFalse(unchanged)
         self.assertTrue(restored)
         self.assertIn("Source display is disabled.", captured_output.getvalue())
+
+
+class TestPersonaCommands(unittest.TestCase):
+    def setUp(self):
+        self.teacher = PersonaConfig(
+            identifier="teacher-assistant",
+            display_name="Teacher assistant",
+            role="Supports teachers",
+            tone="Practical",
+            system_prompt="Teacher prompt",
+            response_scope="Teaching support.",
+        )
+        self.mathematics = PersonaConfig(
+            identifier="mathematics-assistant",
+            display_name="Mathematics assistant",
+            role="Supports mathematics teachers",
+            tone="Precise",
+            system_prompt="Mathematics prompt",
+            response_scope="Mathematics teaching support.",
+        )
+        self.personas = PersonasConfig(
+            active_persona=self.teacher.identifier,
+            profiles=(self.teacher, self.mathematics),
+        )
+
+    def test_persona_commands_list_status_and_switch_without_erasing_history(self):
+        profile_manager = MagicMock()
+        profile_manager.build_system_prompt.side_effect = lambda prompt: f"Profile: {prompt}"
+        messages = [
+            {"role": "system", "content": "Profile: Teacher prompt"},
+            {"role": "user", "content": "Existing question"},
+            {"role": "assistant", "content": "Existing answer"},
+        ]
+        context = CliCommandContext(
+            feature_config=FeatureConfig(),
+            rag_indexer=MagicMock(),
+            conversation_session=MagicMock(),
+            command_definitions=GLOBAL_COMMANDS,
+            personas=self.personas,
+            profile_manager=profile_manager,
+            messages=messages,
+        )
+        session = CliSession(active_persona_id=self.teacher.identifier)
+        output = io.StringIO()
+
+        with patch("sys.stdout", output):
+            self.assertTrue(_dispatch_command("/persona list", session, context, GLOBAL_COMMANDS))
+            self.assertTrue(_dispatch_command("/persona status", session, context, GLOBAL_COMMANDS))
+            self.assertTrue(
+                _dispatch_command("/persona use mathematics-assistant", session, context, GLOBAL_COMMANDS)
+            )
+            self.assertTrue(_dispatch_command("/persona use unknown", session, context, GLOBAL_COMMANDS))
+
+        self.assertEqual(session.active_persona_id, self.mathematics.identifier)
+        self.assertIn("Mathematics prompt", messages[0]["content"])
+        self.assertIn("Supports mathematics teachers", messages[0]["content"])
+        self.assertEqual(messages[1:], [
+            {"role": "user", "content": "Existing question"},
+            {"role": "assistant", "content": "Existing answer"},
+        ])
+        self.assertIn("Available personas:", output.getvalue())
+        self.assertIn("Active persona: Teacher assistant", output.getvalue())
+        self.assertIn("Unknown persona: unknown", output.getvalue())
+
+    @patch("builtins.input", side_effect=["/persona use mathematics-assistant", "Hello", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    @patch("cli.cli.ProfileManager")
+    def test_next_model_request_uses_the_runtime_selected_persona(
+        self,
+        profile_manager_class,
+        session_manager_class,
+        client_class,
+        _mock_input,
+    ):
+        profile_manager = MagicMock()
+        profile_manager.build_system_prompt.side_effect = lambda prompt: f"Profile: {prompt}"
+        profile_manager_class.return_value = profile_manager
+        session_manager_class.return_value.load.return_value = None
+        client_class.return_value.stream_message.return_value = [
+            b'{"message": {"content": "Hello."}}'
+        ]
+        configuration = AppConfig(personas=self.personas)
+        mcp_manager = MagicMock()
+        mcp_manager.start.return_value = []
+        mcp_manager.register_tools.return_value = []
+
+        with patch("sys.stdout", io.StringIO()):
+            cli(app_config=configuration, mcp_manager=mcp_manager)
+
+        request_messages = client_class.return_value.stream_message.call_args.args[0]
+        self.assertIn("Profile: PERSONA:", request_messages[0]["content"])
+        self.assertIn("Mathematics prompt", request_messages[0]["content"])
+        self.assertEqual(request_messages[1], {"role": "user", "content": "Hello"})
 
 class AddTool(Tool):
     name = "add"
@@ -714,6 +848,58 @@ class TestCLISessionLoading(unittest.TestCase):
             cli(session_id="valid-id")
 
         mock_session.load.assert_called_with("valid-id")
+
+
+class TestCLIMCPTools(unittest.TestCase):
+    """Tests for MCP tool discovery wiring and the /tools command."""
+
+    def run_cli(self, inputs, mcp_manager, registry=None):
+        output = io.StringIO()
+        with patch("builtins.input", side_effect=inputs), \
+                patch("cli.cli.OllamaHTTPClient"), \
+                patch("cli.cli.SessionManager"), \
+                patch("cli.cli.atexit.register") as register, \
+                patch("sys.stdout", output):
+            cli(dependencies=CliDependencies(registry=registry or ToolRegistry()), mcp_manager=mcp_manager)
+        return output.getvalue(), register
+
+    def test_tools_command_lists_native_and_mcp_tools(self):
+        # pyrefly: ignore [missing-import]
+        from mcp.manager import MCPManager, MCPTool
+        registry = ToolRegistry()
+        registry.register(AddTool())
+        manager = MagicMock(spec=MCPManager)
+        manager.start.return_value = []
+        remote = MCPTool("alpha", MagicMock(), {"name": "echo", "description": "Echo a text."})
+        manager.register_tools.side_effect = lambda reg: reg.register(remote) or []
+
+        output, _ = self.run_cli(["/tools", "exit"], manager, registry)
+
+        self.assertIn("- add [native]: Add two integers.", output)
+        self.assertIn("- alpha__echo [alpha]: Echo a text.", output)
+
+    def test_mcp_warnings_are_displayed_and_do_not_stop_the_cli(self):
+        # pyrefly: ignore [missing-import]
+        from mcp.manager import MCPManager
+        manager = MagicMock(spec=MCPManager)
+        manager.start.return_value = ["MCP server 'broken' unavailable: boom"]
+        manager.register_tools.return_value = ["Skipping MCP tool 'x': duplicate"]
+
+        output, _ = self.run_cli(["exit"], manager)
+
+        self.assertIn("Warning: MCP server 'broken' unavailable: boom", output)
+        self.assertIn("Warning: Skipping MCP tool 'x': duplicate", output)
+
+    def test_mcp_servers_are_closed_at_exit(self):
+        # pyrefly: ignore [missing-import]
+        from mcp.manager import MCPManager
+        manager = MagicMock(spec=MCPManager)
+        manager.start.return_value = []
+        manager.register_tools.return_value = []
+
+        _, register = self.run_cli(["exit"], manager)
+
+        register.assert_called_once_with(manager.close)
 
 
 if __name__ == "__main__":

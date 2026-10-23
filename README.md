@@ -47,6 +47,92 @@ SensAI reads [`config.json`](config.json) when the application starts. This file
 
 Invalid values are reported at startup instead of being silently ignored.
 
+### Teacher-assistant persona
+
+New conversations use SensAI's built-in teacher-assistant persona. It supports educators
+with lesson preparation, explanations, activities, quizzes, and grading criteria while
+respecting RAG and tool instructions. The current persona prompt is maintained in
+`config.json` under `personas.profiles`. The `active_persona` identifier selects the
+persona used for new conversations.
+
+Additional personas can be added to `personas.profiles` without changing Python code.
+During a session, use:
+
+```text
+/persona list
+/persona status
+/persona use teacher-assistant
+```
+
+Switching personas keeps the existing user and assistant history, but replaces the base
+system message used for subsequent model requests. The runtime selection is not persisted:
+after restarting SensAI, `active_persona` in `config.json` is selected again.
+
+Each persona must define exactly one prompt source. Use `prompt_file` for a UTF-8 text file
+relative to `config.json`, which keeps longer prompts easy to edit and review:
+
+```json
+"prompt_file": "prompts/teacher-assistant.txt"
+```
+
+Alternatively, use `system_prompt` to keep a short prompt directly in `config.json`:
+
+```json
+"system_prompt": "You are a concise assistant for mathematics teachers."
+```
+
+### Logging and prompt inspection
+
+SensAI writes operational logs to a local file and never prints them during a normal chat. Configure the level and destination in `config.json`:
+
+```json
+"logging": {
+  "level": "DEBUG",
+  "file_path": "logs/sensai.log"
+}
+```
+
+Supported levels are `DEBUG`, `INFO`, `WARNING`, and `ERROR`. The log records timestamps, severity, and component names for startup, commands, RAG retrieval decisions, tool execution, and handled errors. It intentionally records metadata only, not prompt content, user text, document excerpts, tool arguments, or sensitive configuration values.
+
+To inspect the last request sent to Ollama while keeping the base system prompt and profile hidden, use:
+
+```text
+/debug prompt
+```
+
+To include the base system prompt and profile deliberately, use:
+
+```text
+/debug prompt --include-system
+```
+
+The output labels base system messages, RAG context, user and assistant history, and tool messages. Prompt inspection may contain sensitive conversation or document content, so it is displayed only on demand and is not copied to the log file.
+
+### Local monitoring dashboard
+
+SensAI can persist privacy-preserving interaction metrics locally. Monitoring is disabled by default. Enable it in `config.json`:
+
+```json
+"monitoring": {
+  "enabled": true,
+  "database_path": "data/sensai_monitoring.sqlite3",
+  "retention_days": 30,
+  "prompt_version": "teacher-v1"
+}
+```
+
+When enabled, SensAI stores timestamps, components, model names, enabled features, prompt versions, request status, latency, estimated input/output tokens, retrieved RAG chunk counts, tool names, tool status, and tool duration. It does not store raw prompts, responses, document excerpts, profiles, tool arguments, tool results, secrets, or sensitive configuration values.
+
+Use `/metrics` to display a local terminal dashboard. It includes model-call volume, average and p95 latency, error rate, RAG activity, estimated token counts, tool outcomes, and calls over time. Optional filters include `--from`, `--to`, `--model`, `--prompt-version`, `--feature`, `--tool`, and `--error`:
+
+```text
+/metrics --from 2026-10-01 --model llama3.2 --prompt-version teacher-v1
+/metrics --feature rag
+/metrics --tool get_time
+```
+
+Token values are estimates based on request and response length when Ollama does not provide provider-native token counts.
+
 The project uses the `llama3.2` model by default. Download it once if it is not already available:
 
 ```bash
