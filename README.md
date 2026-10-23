@@ -155,6 +155,8 @@ python3 source/main.py
 
 The application starts an interactive chat connected to the local Ollama API at `http://localhost:11434`.
 
+In an interactive terminal, `You:` is displayed in bold green and `Assistant:` in bold red. SensAI enables the standard Python `readline` integration when available, allowing normal line editing with the left and right arrows and in-memory history with the up and down arrows. Set the `NO_COLOR` environment variable to disable terminal colors.
+
 ### CLI command help
 
 Type the following while SensAI is running to display its available commands, grouped by feature:
