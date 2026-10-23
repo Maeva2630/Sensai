@@ -143,10 +143,12 @@ def cli(
     except FileNotFoundError as error:
         print(f"Error: {error}")
         sys.exit(1)
-    messages = list(loaded) if loaded else [
-        {"role": "system", "content": profile_manager.build_system_prompt(app_config.personas.active.system_prompt)}
-    ]
-    session = CliSession(show_sources=feature_config.source_display_enabled)
+    messages = list(loaded) if loaded else []
+    _ensure_base_system_message(messages, profile_manager, app_config.personas.active.system_instructions)
+    session = CliSession(
+        show_sources=feature_config.source_display_enabled,
+        active_persona_id=app_config.personas.active.identifier,
+    )
 
     registry = (
         dependencies.registry
@@ -171,6 +173,9 @@ def cli(
         GLOBAL_COMMANDS,
         registry,
         _create_monitoring_store(app_config),
+        app_config.personas,
+        profile_manager,
+        messages,
     )
 
     while True:
@@ -312,6 +317,19 @@ def _create_monitoring_store(app_config: AppConfig) -> MonitoringStore | Disable
         logger.warning("monitoring.disabled error_type=%s", type(error).__name__)
         print(f"Warning: monitoring is disabled because its database could not be opened: {error}")
         return DisabledMonitoringStore()
+
+
+def _ensure_base_system_message(
+    messages: list[dict[str, Any]],
+    profile_manager: ProfileManager,
+    persona_prompt: str,
+) -> None:
+    """Insert the active persona when a loaded history has no system message."""
+    system_message = {"role": "system", "content": profile_manager.build_system_prompt(persona_prompt)}
+    if messages and messages[0].get("role") == "system":
+        messages[0] = system_message
+    else:
+        messages.insert(0, system_message)
 
 
 def _record_model_interaction(

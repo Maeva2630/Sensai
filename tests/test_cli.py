@@ -9,14 +9,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
-from config import AppConfig, PersonaConfig, PersonasConfig
+from config import AppConfig, FeatureConfig, PersonaConfig, PersonasConfig
 from cli.commands import GLOBAL_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
     _handle_sources_command,
 )
-from cli.session import CommandDefinition
+from cli.session import CliCommandContext, CliSession, CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
@@ -73,7 +73,9 @@ class TestCLIPromptInjection(unittest.TestCase):
             )
 
         mock_pm_cls.assert_called_once_with(profile_path="custom_profile.json")
-        mock_pm.build_system_prompt.assert_called_once_with("Configured persona prompt")
+        configured_instructions = mock_pm.build_system_prompt.call_args.args[0]
+        self.assertIn("Mathematics assistant", configured_instructions)
+        self.assertIn("Configured persona prompt", configured_instructions)
 
 
 class TestCLIExceptionHandling(unittest.TestCase):
@@ -384,6 +386,100 @@ class TestCLICommands(unittest.TestCase):
         self.assertFalse(unchanged)
         self.assertTrue(restored)
         self.assertIn("Source display is disabled.", captured_output.getvalue())
+
+
+class TestPersonaCommands(unittest.TestCase):
+    def setUp(self):
+        self.teacher = PersonaConfig(
+            identifier="teacher-assistant",
+            display_name="Teacher assistant",
+            role="Supports teachers",
+            tone="Practical",
+            system_prompt="Teacher prompt",
+            response_scope="Teaching support.",
+        )
+        self.mathematics = PersonaConfig(
+            identifier="mathematics-assistant",
+            display_name="Mathematics assistant",
+            role="Supports mathematics teachers",
+            tone="Precise",
+            system_prompt="Mathematics prompt",
+            response_scope="Mathematics teaching support.",
+        )
+        self.personas = PersonasConfig(
+            active_persona=self.teacher.identifier,
+            profiles=(self.teacher, self.mathematics),
+        )
+
+    def test_persona_commands_list_status_and_switch_without_erasing_history(self):
+        profile_manager = MagicMock()
+        profile_manager.build_system_prompt.side_effect = lambda prompt: f"Profile: {prompt}"
+        messages = [
+            {"role": "system", "content": "Profile: Teacher prompt"},
+            {"role": "user", "content": "Existing question"},
+            {"role": "assistant", "content": "Existing answer"},
+        ]
+        context = CliCommandContext(
+            feature_config=FeatureConfig(),
+            rag_indexer=MagicMock(),
+            conversation_session=MagicMock(),
+            command_definitions=GLOBAL_COMMANDS,
+            personas=self.personas,
+            profile_manager=profile_manager,
+            messages=messages,
+        )
+        session = CliSession(active_persona_id=self.teacher.identifier)
+        output = io.StringIO()
+
+        with patch("sys.stdout", output):
+            self.assertTrue(_dispatch_command("/persona list", session, context, GLOBAL_COMMANDS))
+            self.assertTrue(_dispatch_command("/persona status", session, context, GLOBAL_COMMANDS))
+            self.assertTrue(
+                _dispatch_command("/persona use mathematics-assistant", session, context, GLOBAL_COMMANDS)
+            )
+            self.assertTrue(_dispatch_command("/persona use unknown", session, context, GLOBAL_COMMANDS))
+
+        self.assertEqual(session.active_persona_id, self.mathematics.identifier)
+        self.assertIn("Mathematics prompt", messages[0]["content"])
+        self.assertIn("Supports mathematics teachers", messages[0]["content"])
+        self.assertEqual(messages[1:], [
+            {"role": "user", "content": "Existing question"},
+            {"role": "assistant", "content": "Existing answer"},
+        ])
+        self.assertIn("Available personas:", output.getvalue())
+        self.assertIn("Active persona: Teacher assistant", output.getvalue())
+        self.assertIn("Unknown persona: unknown", output.getvalue())
+
+    @patch("builtins.input", side_effect=["/persona use mathematics-assistant", "Hello", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    @patch("cli.cli.ProfileManager")
+    def test_next_model_request_uses_the_runtime_selected_persona(
+        self,
+        profile_manager_class,
+        session_manager_class,
+        client_class,
+        _mock_input,
+    ):
+        profile_manager = MagicMock()
+        profile_manager.build_system_prompt.side_effect = lambda prompt: f"Profile: {prompt}"
+        profile_manager_class.return_value = profile_manager
+        session_manager_class.return_value.load.return_value = None
+        client_class.return_value.stream_message.return_value = [
+            b'{"message": {"content": "Hello."}}'
+        ]
+        configuration = AppConfig(personas=self.personas)
+        mcp_manager = MagicMock()
+        mcp_manager.start.return_value = []
+        mcp_manager.register_tools.return_value = []
+
+        with patch("sys.stdout", io.StringIO()):
+            cli(app_config=configuration, mcp_manager=mcp_manager)
+
+        request_messages = client_class.return_value.stream_message.call_args.args[0]
+        self.assertIn("Profile: PERSONA:", request_messages[0]["content"])
+        self.assertIn("Mathematics prompt", request_messages[0]["content"])
+        self.assertEqual(request_messages[1], {"role": "user", "content": "Hello"})
 
 class AddTool(Tool):
     name = "add"

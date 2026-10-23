@@ -151,6 +151,7 @@ class TestConfigurationLoading(unittest.TestCase):
 
         self.assertEqual(configuration.personas.active.display_name, "Mathematics assistant")
         self.assertEqual(configuration.personas.active.system_prompt, "Support mathematics teachers.")
+        self.assertIn("Role: Supports mathematics teachers", configuration.personas.active.system_instructions)
 
     def test_loads_a_persona_prompt_from_a_file_relative_to_the_configuration(self):
         prompts_directory = self.config_path.parent / "prompts"

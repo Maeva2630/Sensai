@@ -55,9 +55,18 @@ respecting RAG and tool instructions. The current persona prompt is maintained i
 `config.json` under `personas.profiles`. The `active_persona` identifier selects the
 persona used for new conversations.
 
-Additional personas can be added to `personas.profiles` without changing Python code. At
-this stage, selecting another persona requires updating `active_persona` and restarting
-SensAI; runtime `/persona` commands are the next step.
+Additional personas can be added to `personas.profiles` without changing Python code.
+During a session, use:
+
+```text
+/persona list
+/persona status
+/persona use teacher-assistant
+```
+
+Switching personas keeps the existing user and assistant history, but replaces the base
+system message used for subsequent model requests. The runtime selection is not persisted:
+after restarting SensAI, `active_persona` in `config.json` is selected again.
 
 Each persona must define exactly one prompt source. Use `prompt_file` for a UTF-8 text file
 relative to `config.json`, which keeps longer prompts easy to edit and review:

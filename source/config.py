@@ -72,6 +72,18 @@ class PersonaConfig:
     system_prompt: str
     response_scope: str
 
+    @property
+    def system_instructions(self) -> str:
+        """Combine the persona metadata and authored prompt for the chat model."""
+        return f"""PERSONA:
+- Name: {self.display_name}
+- Role: {self.role}
+- Tone: {self.tone}
+- Response scope: {self.response_scope}
+
+PERSONA INSTRUCTIONS:
+{self.system_prompt}"""
+
 
 DEFAULT_TEACHER_ASSISTANT_PERSONA = PersonaConfig(
     identifier="teacher-assistant",
@@ -94,6 +106,10 @@ class PersonasConfig:
     def active(self) -> PersonaConfig:
         """Return the validated persona selected for the current application."""
         return next(profile for profile in self.profiles if profile.identifier == self.active_persona)
+
+    def find(self, identifier: str) -> PersonaConfig | None:
+        """Return a configured persona by identifier, if it exists."""
+        return next((profile for profile in self.profiles if profile.identifier == identifier), None)
 
 
 @dataclass(frozen=True)

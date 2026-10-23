@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from config import FeatureConfig
+from config import FeatureConfig, PersonasConfig
+from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from observability.monitoring import DisabledMonitoringStore, MonitoringStore
 from rag.context import RAGIndexer
@@ -45,6 +46,7 @@ class CliSession:
     exit_requested: bool = False
     last_request_messages: list[dict[str, Any]] | None = None
     last_rag_context: str | None = None
+    active_persona_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -57,3 +59,6 @@ class CliCommandContext:
     command_definitions: tuple[CommandDefinition, ...] = ()
     registry: ToolRegistry | None = None
     monitoring_store: MonitoringStore | DisabledMonitoringStore | None = None
+    personas: PersonasConfig = PersonasConfig()
+    profile_manager: ProfileManager | None = None
+    messages: list[dict[str, Any]] = field(default_factory=list)

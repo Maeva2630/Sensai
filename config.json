@@ -37,6 +37,14 @@
         "tone": "Clear, practical, supportive, and pedagogical",
         "prompt_file": "prompts/teacher-assistant.txt",
         "response_scope": "Support educators with lesson preparation, teaching resources, and assessment."
+      },
+      {
+        "identifier": "mathematics-assistant",
+        "display_name": "Mathematics assistant",
+        "role": "Educational assistant for mathematics teachers",
+        "tone": "Precise, practical, and pedagogical",
+        "prompt_file": "prompts/mathematics-assistant.txt",
+        "response_scope": "Support mathematics teachers with lessons, exercises, assessments, and differentiation."
       }
     ]
   }
