@@ -1,9 +1,9 @@
 import argparse
 
 from cli.cli import cli
+from cli.error_handling import report_cli_error
 from config import ConfigurationError, load_config
 from observability.app_logging import configure_logging, get_logger
-from rag.storage import VectorStoreError
 
 def main():
     parser = argparse.ArgumentParser(description="Sensai CLI")
@@ -49,9 +49,8 @@ def main():
             profile_path=args.profile,
             app_config=app_config,
         )
-    except VectorStoreError as error:
-        logger.error("application.startup_failed component=rag error_type=%s", type(error).__name__)
-        print(f"RAG startup error: {error}")
+    except Exception as error:
+        report_cli_error(error, logger)
 
 if __name__ == "__main__":
     main()
