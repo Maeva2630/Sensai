@@ -50,11 +50,22 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class MonitoringConfig:
+    """Controls local, privacy-preserving interaction metrics."""
+
+    enabled: bool = False
+    database_path: str = "data/sensai_monitoring.sqlite3"
+    retention_days: int = 30
+    prompt_version: str = "default-v1"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     model: ModelConfig = ModelConfig()
     features: FeatureConfig = FeatureConfig()
     rag: RagConfig = RagConfig()
     logging: LoggingConfig = LoggingConfig()
+    monitoring: MonitoringConfig = MonitoringConfig()
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
@@ -73,7 +84,14 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     features = _read_features(_section(data, "features"))
     rag = _read_rag(_section(data, "rag"))
     logging = _read_logging(_optional_section(data, "logging"))
-    return AppConfig(model=model, features=features, rag=rag, logging=logging)
+    monitoring = _read_monitoring(_optional_section(data, "monitoring"))
+    return AppConfig(
+        model=model,
+        features=features,
+        rag=rag,
+        logging=logging,
+        monitoring=monitoring,
+    )
 
 
 def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -162,3 +180,15 @@ def _read_logging(section: Mapping[str, Any] | None) -> LoggingConfig:
     if level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
         raise ConfigurationError("'level' must be DEBUG, INFO, WARNING, or ERROR.")
     return LoggingConfig(level=level, file_path=_string(section, "file_path"))
+
+
+def _read_monitoring(section: Mapping[str, Any] | None) -> MonitoringConfig:
+    """Read optional local monitoring settings without breaking older configs."""
+    if section is None:
+        return MonitoringConfig()
+    return MonitoringConfig(
+        enabled=_boolean(section, "enabled"),
+        database_path=_string(section, "database_path"),
+        retention_days=_integer(section, "retention_days", 1),
+        prompt_version=_string(section, "prompt_version"),
+    )

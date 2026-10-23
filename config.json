@@ -20,5 +20,11 @@
   "logging": {
     "level": "INFO",
     "file_path": "logs/sensai.log"
+  },
+  "monitoring": {
+    "enabled": false,
+    "database_path": "data/sensai_monitoring.sqlite3",
+    "retention_days": 30,
+    "prompt_version": "default-v1"
   }
 }
