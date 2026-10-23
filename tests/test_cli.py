@@ -934,6 +934,41 @@ class TestCLICommandDispatch(unittest.TestCase):
         self.assertIn("- Session total: 325 tokens (250 prompt, 75 completion)", output)
         self.assertIn("Usage: /tokens", output)
 
+    @patch("builtins.input", side_effect=["/load valid-id", "Follow-up question", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_slash_load_restores_conversation_context_for_next_turn(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = [
+            {"role": "user", "content": "Previous question"},
+            {"role": "assistant", "content": "Previous answer"},
+        ]
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.return_value = [
+            b'{"message": {"content": "Follow-up answer"}}'
+        ]
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        self.assertIn("Session valid-id loaded.", captured.getvalue())
+        sent_messages = mock_client.stream_message.call_args.args[0]
+        self.assertEqual(sent_messages[0]["role"], "system")
+        self.assertEqual(
+            sent_messages[1:],
+            [
+                {"role": "user", "content": "Previous question"},
+                {"role": "assistant", "content": "Previous answer"},
+                {"role": "user", "content": "Follow-up question"},
+                {"role": "assistant", "content": "Follow-up answer"},
+            ],
+        )
+
     @patch("builtins.input", side_effect=["", "   ", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
