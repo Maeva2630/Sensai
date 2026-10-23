@@ -50,7 +50,6 @@ def _dispatch_load(
     session.last_rag_context = None
     print(f"Session {session_id} loaded.")
 
-
 def _dispatch_tokens(
     user_input: str,
     session: CliSession,
