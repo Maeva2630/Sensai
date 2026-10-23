@@ -322,6 +322,26 @@ class TestCLICommands(unittest.TestCase):
             self.assertIn(command.usage, output)
         mock_client_cls.return_value.stream_message.assert_not_called()
 
+    @patch("builtins.input", side_effect=["/metric", "/raggg", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_unknown_slash_commands_show_help_without_contacting_the_model(
+        self,
+        mock_client_cls,
+        _mock_input,
+    ):
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        output = captured_output.getvalue()
+        self.assertIn("Unknown command: /metric", output)
+        self.assertIn("Did you mean: /metrics?", output)
+        self.assertIn("Unknown command: /raggg", output)
+        self.assertIn("Did you mean: /rag?", output)
+        self.assertIn("Type /help to list available commands.", output)
+        mock_client_cls.return_value.stream_message.assert_not_called()
+
     def test_rag_commands_change_state_and_invalid_options_preserve_it(self):
         captured_output = io.StringIO()
         with patch("sys.stdout", captured_output):

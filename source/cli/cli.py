@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Any
 
 from cli.commands import GLOBAL_COMMANDS
+from cli.commands.help import display_unknown_command
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 from cli.tool_calls import run_tool_calls
@@ -181,6 +182,9 @@ def cli(
             if _dispatch_command(user_input, session, command_context, GLOBAL_COMMANDS):
                 if session.exit_requested:
                     break
+                continue
+            if user_input.startswith("/"):
+                display_unknown_command(user_input, GLOBAL_COMMANDS)
                 continue
 
             turn_start = len(messages)
