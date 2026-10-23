@@ -35,14 +35,13 @@ def main():
         return
     logger = get_logger("startup")
     logger.info(
-        "application.started chat_model=%s embedding_model=%s rag_enabled=%s tools_enabled=%s",
+        "application.started chat_model=%s embedding_model=%s rag_enabled=%s tools_enabled=%s memory_enabled=%s",
         app_config.model.chat_model,
         app_config.model.embedding_model,
         app_config.features.rag_enabled,
         app_config.features.tools_enabled,
+        app_config.features.memory_enabled,
     )
-    if app_config.features.memory_enabled:
-        print("Memory is enabled in config.json but is not implemented yet; it remains inactive.")
     try:
         cli(
             session_id=args.session,

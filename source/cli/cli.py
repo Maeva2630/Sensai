@@ -290,7 +290,8 @@ def cli(
 
         except (KeyboardInterrupt, EOFError):
             logger.info("cli.interrupted")
-            conversation_session.save()
+            if feature_config.memory_enabled:
+                conversation_session.save()
             print("Exiting.")
             sys.exit(0)
 
