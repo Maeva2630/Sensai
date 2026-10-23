@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from config import AppConfig, PersonaConfig, PersonasConfig
 from cli.commands import GLOBAL_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
@@ -52,10 +53,27 @@ class TestCLIPromptInjection(unittest.TestCase):
         mock_client_cls.return_value = mock_client
 
         with patch("sys.stdout", io.StringIO()):
-            cli(profile_path="custom_profile.json")
+            cli(
+                profile_path="custom_profile.json",
+                app_config=AppConfig(
+                    personas=PersonasConfig(
+                        active_persona="math-assistant",
+                        profiles=(
+                            PersonaConfig(
+                                identifier="math-assistant",
+                                display_name="Mathematics assistant",
+                                role="Supports mathematics teachers",
+                                tone="Precise and practical",
+                                system_prompt="Configured persona prompt",
+                                response_scope="Lesson preparation.",
+                            ),
+                        ),
+                    )
+                ),
+            )
 
         mock_pm_cls.assert_called_once_with(profile_path="custom_profile.json")
-        mock_pm.build_system_prompt.assert_called_once()
+        mock_pm.build_system_prompt.assert_called_once_with("Configured persona prompt")
 
 
 class TestCLIExceptionHandling(unittest.TestCase):

@@ -52,8 +52,25 @@ Invalid values are reported at startup instead of being silently ignored.
 New conversations use SensAI's built-in teacher-assistant persona. It supports educators
 with lesson preparation, explanations, activities, quizzes, and grading criteria while
 respecting RAG and tool instructions. The current persona prompt is maintained in
-`source/personas/teacher_assistant.py`; configurable and runtime-switchable personas are
-a later step.
+`config.json` under `personas.profiles`. The `active_persona` identifier selects the
+persona used for new conversations.
+
+Additional personas can be added to `personas.profiles` without changing Python code. At
+this stage, selecting another persona requires updating `active_persona` and restarting
+SensAI; runtime `/persona` commands are the next step.
+
+Each persona must define exactly one prompt source. Use `prompt_file` for a UTF-8 text file
+relative to `config.json`, which keeps longer prompts easy to edit and review:
+
+```json
+"prompt_file": "prompts/teacher-assistant.txt"
+```
+
+Alternatively, use `system_prompt` to keep a short prompt directly in `config.json`:
+
+```json
+"system_prompt": "You are a concise assistant for mathematics teachers."
+```
 
 ### Logging and prompt inspection
 

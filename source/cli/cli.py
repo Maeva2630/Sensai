@@ -144,7 +144,7 @@ def cli(
         print(f"Error: {error}")
         sys.exit(1)
     messages = list(loaded) if loaded else [
-        {"role": "system", "content": profile_manager.build_system_prompt()}
+        {"role": "system", "content": profile_manager.build_system_prompt(app_config.personas.active.system_prompt)}
     ]
     session = CliSession(show_sources=feature_config.source_display_enabled)
 

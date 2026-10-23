@@ -26,5 +26,18 @@
     "database_path": "data/sensai_monitoring.sqlite3",
     "retention_days": 30,
     "prompt_version": "default-v1"
+  },
+  "personas": {
+    "active_persona": "teacher-assistant",
+    "profiles": [
+      {
+        "identifier": "teacher-assistant",
+        "display_name": "Teacher assistant",
+        "role": "Educational assistant for teachers and educators",
+        "tone": "Clear, practical, supportive, and pedagogical",
+        "prompt_file": "prompts/teacher-assistant.txt",
+        "response_scope": "Support educators with lesson preparation, teaching resources, and assessment."
+      }
+    ]
   }
 }

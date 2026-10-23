@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from personas.teacher_assistant import TEACHER_ASSISTANT_BASE_PROMPT
+
 PROJECT_ROOT = Path(__file__).parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
 
@@ -60,12 +62,48 @@ class MonitoringConfig:
 
 
 @dataclass(frozen=True)
+class PersonaConfig:
+    """One configurable assistant persona and its system-prompt instructions."""
+
+    identifier: str
+    display_name: str
+    role: str
+    tone: str
+    system_prompt: str
+    response_scope: str
+
+
+DEFAULT_TEACHER_ASSISTANT_PERSONA = PersonaConfig(
+    identifier="teacher-assistant",
+    display_name="Teacher assistant",
+    role="Educational assistant for teachers and educators",
+    tone="Clear, practical, supportive, and pedagogical",
+    system_prompt=TEACHER_ASSISTANT_BASE_PROMPT,
+    response_scope="Support educators with lesson preparation, teaching resources, and assessment.",
+)
+
+
+@dataclass(frozen=True)
+class PersonasConfig:
+    """Configured personas and the one selected for new conversations."""
+
+    active_persona: str = DEFAULT_TEACHER_ASSISTANT_PERSONA.identifier
+    profiles: tuple[PersonaConfig, ...] = (DEFAULT_TEACHER_ASSISTANT_PERSONA,)
+
+    @property
+    def active(self) -> PersonaConfig:
+        """Return the validated persona selected for the current application."""
+        return next(profile for profile in self.profiles if profile.identifier == self.active_persona)
+
+
+@dataclass(frozen=True)
 class AppConfig:
     model: ModelConfig = ModelConfig()
     features: FeatureConfig = FeatureConfig()
     rag: RagConfig = RagConfig()
     logging: LoggingConfig = LoggingConfig()
     monitoring: MonitoringConfig = MonitoringConfig()
+    personas: PersonasConfig = PersonasConfig()
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
@@ -85,12 +123,14 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     rag = _read_rag(_section(data, "rag"))
     logging = _read_logging(_optional_section(data, "logging"))
     monitoring = _read_monitoring(_optional_section(data, "monitoring"))
+    personas = _read_personas(_optional_section(data, "personas"), config_path.parent)
     return AppConfig(
         model=model,
         features=features,
         rag=rag,
         logging=logging,
         monitoring=monitoring,
+        personas=personas,
     )
 
 
@@ -192,3 +232,68 @@ def _read_monitoring(section: Mapping[str, Any] | None) -> MonitoringConfig:
         retention_days=_integer(section, "retention_days", 1),
         prompt_version=_string(section, "prompt_version"),
     )
+
+
+def _read_personas(
+    section: Mapping[str, Any] | None,
+    config_directory: Path,
+) -> PersonasConfig:
+    """Read configurable personas while keeping earlier configuration files compatible."""
+    if section is None:
+        return PersonasConfig()
+    active_persona = _string(section, "active_persona")
+    raw_profiles = section.get("profiles")
+    if not isinstance(raw_profiles, list) or not raw_profiles:
+        raise ConfigurationError("'personas.profiles' must be a non-empty array.")
+
+    profiles = tuple(_read_persona(profile, config_directory) for profile in raw_profiles)
+    identifiers = [profile.identifier for profile in profiles]
+    if len(set(identifiers)) != len(identifiers):
+        raise ConfigurationError("'personas.profiles' identifiers must be unique.")
+    if active_persona not in identifiers:
+        raise ConfigurationError("'personas.active_persona' must identify a configured persona.")
+    return PersonasConfig(active_persona=active_persona, profiles=profiles)
+
+
+def _read_persona(raw_persona: Any, config_directory: Path) -> PersonaConfig:
+    """Validate one persona object from the configuration file."""
+    if not isinstance(raw_persona, Mapping):
+        raise ConfigurationError("Each item in 'personas.profiles' must be an object.")
+    inline_prompt = raw_persona.get("system_prompt")
+    prompt_file = raw_persona.get("prompt_file")
+    if (inline_prompt is None) == (prompt_file is None):
+        raise ConfigurationError(
+            "Each persona must define exactly one of 'system_prompt' or 'prompt_file'."
+        )
+    return PersonaConfig(
+        identifier=_string(raw_persona, "identifier"),
+        display_name=_string(raw_persona, "display_name"),
+        role=_string(raw_persona, "role"),
+        tone=_string(raw_persona, "tone"),
+        system_prompt=(
+            _string(raw_persona, "system_prompt")
+            if inline_prompt is not None
+            else _read_prompt_file(_string(raw_persona, "prompt_file"), config_directory)
+        ),
+        response_scope=_string(raw_persona, "response_scope"),
+    )
+
+
+def _read_prompt_file(prompt_file: str, config_directory: Path) -> str:
+    """Load a UTF-8 prompt file relative to the configuration file."""
+    path = (config_directory / prompt_file).resolve()
+    try:
+        path.relative_to(config_directory.resolve())
+    except ValueError as error:
+        raise ConfigurationError("'prompt_file' must stay inside the configuration directory.") from error
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError as error:
+        raise ConfigurationError(f"Persona prompt file not found: {path}") from error
+    except UnicodeDecodeError as error:
+        raise ConfigurationError(f"Persona prompt file must be UTF-8: {path}") from error
+    except OSError as error:
+        raise ConfigurationError(f"Unable to read persona prompt file '{path}': {error}") from error
+    if not content:
+        raise ConfigurationError(f"Persona prompt file must not be empty: {path}")
+    return content
