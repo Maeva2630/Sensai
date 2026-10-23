@@ -224,7 +224,6 @@ def cli(
                 request_messages = _request_messages(messages, rag_system_message)
                 session.last_request_messages = [message.copy() for message in request_messages]
                 session.last_rag_context = rag_system_message
-                full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
                 logger.debug(
                     "model.request_prepared message_count=%s rag_context=%s tool_definitions=%s",
                     len(request_messages),
