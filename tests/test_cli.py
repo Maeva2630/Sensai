@@ -969,6 +969,25 @@ class TestCLICommandDispatch(unittest.TestCase):
             ],
         )
 
+    @patch("builtins.input", side_effect=["/save", "/load some-id", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_memory_commands_are_blocked_when_memory_is_disabled(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client_cls.return_value = MagicMock()
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli(app_config=AppConfig(features=FeatureConfig(memory_enabled=False)))
+
+        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 2)
+        mock_session.save.assert_not_called()
+        mock_session.load.assert_not_called()
+
     @patch("builtins.input", side_effect=["", "   ", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
