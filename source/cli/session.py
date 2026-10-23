@@ -8,6 +8,7 @@ from typing import Any
 
 from config import FeatureConfig
 from memory.session_manager import SessionManager
+from observability.monitoring import DisabledMonitoringStore, MonitoringStore
 from rag.context import RAGIndexer
 from rag.storage import MetadataFilter
 from tools.registry import ToolRegistry
@@ -55,3 +56,4 @@ class CliCommandContext:
     conversation_session: SessionManager
     command_definitions: tuple[CommandDefinition, ...] = ()
     registry: ToolRegistry | None = None
+    monitoring_store: MonitoringStore | DisabledMonitoringStore | None = None

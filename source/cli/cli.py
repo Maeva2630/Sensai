@@ -1,17 +1,25 @@
 import atexit
 import json
+import sqlite3
 import sys
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from cli.commands import GLOBAL_COMMANDS
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 from cli.tool_calls import run_tool_calls
-from config import AppConfig
+from config import AppConfig, FeatureConfig
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from observability.app_logging import get_logger
+from observability.monitoring import (
+    DisabledMonitoringStore,
+    MonitoringStore,
+    create_monitoring_store,
+    estimate_tokens,
+)
 from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import EmbeddingError
 from mcp.manager import MCPManager
@@ -161,6 +169,7 @@ def cli(
         conversation_session,
         GLOBAL_COMMANDS,
         registry,
+        _create_monitoring_store(app_config),
     )
 
     while True:
@@ -210,7 +219,38 @@ def cli(
                     rag_system_message is not None,
                     len(tools),
                 )
-                full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
+                started_at = perf_counter()
+                try:
+                    full_response, raw_tool_calls = stream_response(
+                        runtime.chat_client,
+                        request_messages,
+                        tools,
+                    )
+                except OllamaError as error:
+                    _record_model_interaction(
+                        command_context,
+                        model_config.chat_model,
+                        app_config.monitoring.prompt_version,
+                        feature_config,
+                        request_messages,
+                        "",
+                        prepared_context,
+                        (perf_counter() - started_at) * 1000,
+                        "error",
+                        type(error).__name__,
+                    )
+                    raise
+                interaction_id = _record_model_interaction(
+                    command_context,
+                    model_config.chat_model,
+                    app_config.monitoring.prompt_version,
+                    feature_config,
+                    request_messages,
+                    full_response,
+                    prepared_context,
+                    (perf_counter() - started_at) * 1000,
+                    "success",
+                )
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
                 if raw_tool_calls:
@@ -223,7 +263,13 @@ def cli(
                         if attribution:
                             print(f"\n{attribution}")
                     break
-                run_tool_calls(registry, raw_tool_calls, messages)
+                run_tool_calls(
+                    registry,
+                    raw_tool_calls,
+                    messages,
+                    command_context.monitoring_store,
+                    interaction_id,
+                )
             else:
                 print(f"\nWarning: stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer.")
 
@@ -252,3 +298,46 @@ def cli(
 
         finally:
             print()
+
+
+def _create_monitoring_store(app_config: AppConfig) -> MonitoringStore | DisabledMonitoringStore:
+    """Create optional local metrics storage without preventing the CLI from starting."""
+    try:
+        return create_monitoring_store(app_config.monitoring)
+    except (OSError, sqlite3.Error) as error:
+        logger.warning("monitoring.disabled error_type=%s", type(error).__name__)
+        print(f"Warning: monitoring is disabled because its database could not be opened: {error}")
+        return DisabledMonitoringStore()
+
+
+def _record_model_interaction(
+    command_context: CliCommandContext,
+    model: str,
+    prompt_version: str,
+    feature_config: FeatureConfig,
+    request_messages: list[dict[str, Any]],
+    response_text: str,
+    prepared_context: Any,
+    latency_ms: float,
+    status: str,
+    error_category: str | None = None,
+) -> int:
+    """Record safe request metadata without persisting user or model content."""
+    if command_context.monitoring_store is None:
+        return 0
+    try:
+        return command_context.monitoring_store.record_model_interaction(
+            model=model,
+            features=feature_config,
+            prompt_version=prompt_version,
+            status=status,
+            latency_ms=latency_ms,
+            input_tokens=estimate_tokens(request_messages),
+            output_tokens=estimate_tokens(response_text) if status == "success" else None,
+            rag_chunk_count=len(prepared_context.results) if prepared_context is not None else 0,
+            error_category=error_category,
+        )
+    except (OSError, sqlite3.Error) as error:
+        # Metrics are optional: an unavailable local database must not interrupt chat.
+        logger.warning("monitoring.write_failed error_type=%s", type(error).__name__)
+        return 0
