@@ -93,9 +93,9 @@ class TestCLIExceptionHandling(unittest.TestCase):
             cli()
 
         output = captured_output.getvalue()
-        self.assertIn("Connection Error: Unable to connect to Ollama server", output)
-        self.assertIn("Connection refused", output)
-        self.assertIn("Please ensure Ollama is running.", output)
+        self.assertIn("Connection error: unable to reach Ollama.", output)
+        self.assertIn("Make sure Ollama is running", output)
+        self.assertNotIn("Connection refused", output)
 
     @patch("builtins.input", side_effect=["Hello", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
@@ -109,7 +109,7 @@ class TestCLIExceptionHandling(unittest.TestCase):
             cli()
 
         output = captured_output.getvalue()
-        self.assertIn("Warning: Model 'llama3.2' not found", output)
+        self.assertIn("Model error: the configured Ollama model was not found.", output)
 
     @patch("builtins.input", side_effect=["Hello", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
@@ -141,7 +141,7 @@ class TestCLIExceptionHandling(unittest.TestCase):
         with patch("sys.stdout", captured_output):
             cli()
 
-        self.assertIn("Warning: Ollama returned an invalid streaming response.", captured_output.getvalue())
+        self.assertIn("Ollama could not complete this request. Please try again.", captured_output.getvalue())
 
     @patch("builtins.input", side_effect=["Quelle heure est-il ?", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
@@ -188,8 +188,29 @@ class TestCLIExceptionHandling(unittest.TestCase):
 
         output = captured_output.getvalue()
         self.assertIn("Assistant: Starting response...", output)
-        self.assertIn("Connection Error: Unable to connect to Ollama server", output)
-        self.assertIn("Connection lost mid-stream", output)
+        self.assertIn("Connection error: unable to reach Ollama.", output)
+        self.assertNotIn("Connection lost mid-stream", output)
+
+    @patch("builtins.input", side_effect=["Hello", "Hello again", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_cli_unexpected_error_is_hidden_and_the_next_turn_still_works(
+        self, mock_client_cls, _mock_input
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.side_effect = [
+            RuntimeError("sensitive implementation detail"),
+            [b'{"message": {"content": "Recovered"}}'],
+        ]
+
+        captured_output = io.StringIO()
+        with patch("sys.stdout", captured_output):
+            cli()
+
+        output = captured_output.getvalue()
+        self.assertIn("An unexpected error occurred and was handled safely.", output)
+        self.assertNotIn("sensitive implementation detail", output)
+        self.assertIn("Assistant: Recovered", output)
 
     @patch("builtins.input", side_effect=["/ingest", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
@@ -295,7 +316,7 @@ class TestCLIExceptionHandling(unittest.TestCase):
             [call.args[0] for call in indexer.index_document.call_args_list],
             ["first.md", "docs/second guide.md", "third.md"],
         )
-        self.assertIn("Document indexing failed: missing file", captured_output.getvalue())
+        self.assertIn("Document error: the file could not be ingested.", captured_output.getvalue())
         self.assertIn("Multiple ingestion complete: 2/3 paths indexed.", captured_output.getvalue())
 
 
@@ -621,7 +642,7 @@ class TestCLIToolCalling(unittest.TestCase):
 
         output = self.run_cli()
 
-        self.assertIn("Connection Error", output)
+        self.assertIn("Connection error: unable to reach Ollama.", output)
         # The next turn starts from a clean history: system + the new user message only
         self.assertEqual([m["role"] for m in self.histories[2]], ["system", "user"])
         self.assertEqual(self.histories[2][-1]["content"], "Hello")
@@ -794,8 +815,8 @@ class TestCLICommandDispatch(unittest.TestCase):
         with patch("sys.stdout", captured):
             cli()
 
-        self.assertIn("Error:", captured.getvalue())
-        self.assertIn("nonexistent-id", captured.getvalue())
+        self.assertIn("File error: the requested file or session could not be found.", captured.getvalue())
+        self.assertNotIn("nonexistent-id", captured.getvalue())
 
     @patch("builtins.input", side_effect=["/load valid-id", "Follow-up question", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
@@ -884,7 +905,7 @@ class TestCLISessionLoading(unittest.TestCase):
                 cli(session_id="bad-id")
             self.assertEqual(ctx.exception.code, 1)
 
-        self.assertIn("Error:", captured.getvalue())
+        self.assertIn("File error: the requested file or session could not be found.", captured.getvalue())
 
     @patch("builtins.input", side_effect=["exit"])
     @patch("cli.cli.OllamaHTTPClient")

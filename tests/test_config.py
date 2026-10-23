@@ -222,7 +222,8 @@ class TestApplicationStartup(unittest.TestCase):
             with patch("sys.argv", ["main.py"]):
                 main()
 
-        self.assertIn("RAG startup error: database is corrupted", output.getvalue())
+        self.assertIn("RAG error: the local knowledge base is unavailable.", output.getvalue())
+        self.assertNotIn("database is corrupted", output.getvalue())
 
     def test_main_starts_cleanly_when_memory_is_enabled(self):
         configuration = AppConfig(features=FeatureConfig(memory_enabled=True))
