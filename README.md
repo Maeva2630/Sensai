@@ -148,7 +148,7 @@ A tool decides how it is routed with two optional methods:
 - `is_relevant_for(user_input)`: whether the tool is offered to the model for this request. The default is `True`, so a tool without a rule is always offered.
 - `claims_request(user_input)`: whether the request is explicitly meant for this tool. The default is `False`. When a tool claims a request, RAG is skipped and the tool answers (this is how "what time is it?" reaches `get_time` instead of the documents).
 
-### Structured answers: `/quiz` and `/json`
+### Structured answers: `/quiz`
 
 SensAI can force the model to answer with JSON that matches a schema. The schema is sent to Ollama (`format` parameter), the answer is validated, and an invalid answer is sent back to the model with the error, up to 3 attempts.
 
@@ -157,12 +157,6 @@ You: /quiz --questions 3 Le théorème de Pythagore
 ```
 
 `/quiz` prints a multiple-choice quiz followed by its answer key. With `/rag on`, the questions are built only from the indexed course; if no excerpt matches the topic, nothing is generated. Without RAG, the model uses its own knowledge.
-
-```text
-You: /json schemas/person.json Give me a fictional teacher
-```
-
-`/json` accepts any JSON schema file (`type`, `properties`, `required`, `items`, `enum`, `minItems`, `maxItems`, `minimum`, `maximum`, `minLength`).
 
 A small model can write a well-formed quiz with a wrong answer key. The format is checked by the program, the content is not: read the answer key before using a quiz.
 

@@ -2,7 +2,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +23,6 @@ from tools.structured_output import (
     check_quiz,
     format_quiz,
     generate_structured,
-    load_schema_file,
     quiz_messages,
     validate_json,
 )
@@ -181,26 +179,6 @@ class TestQuizHelpers(unittest.TestCase):
         self.assertIn("The theorem says", grounded[0]["content"])
         self.assertIn("3 questions about: Pythagoras", plain[1]["content"])
 
-    def test_load_schema_file(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, "schema.json")
-            with open(path, "w", encoding="utf-8") as schema_file:
-                json.dump({"type": "object"}, schema_file)
-            self.assertEqual(load_schema_file(path), {"type": "object"})
-
-            with open(path, "w", encoding="utf-8") as schema_file:
-                schema_file.write("{not json")
-            with self.assertRaises(StructuredOutputError):
-                load_schema_file(path)
-
-            with open(path, "w", encoding="utf-8") as schema_file:
-                schema_file.write("[1]")
-            with self.assertRaises(StructuredOutputError):
-                load_schema_file(path)
-
-        with self.assertRaises(StructuredOutputError):
-            load_schema_file(os.path.join(folder, "missing.json"))
-
 
 class TestStructuredOutputCommands(unittest.TestCase):
 
@@ -255,26 +233,9 @@ class TestStructuredOutputCommands(unittest.TestCase):
         self.assertIn("No indexed course excerpt matches this topic", output)
         client.complete_message.assert_not_called()
 
-    def test_json_command_prints_valid_json(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, "person.json")
-            with open(path, "w", encoding="utf-8") as schema_file:
-                json.dump({"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}, schema_file)
-
-            output, client = self.run_cli([f"/json {path} Give me a name"], [json.dumps({"name": "Ada"})])
-
-        self.assertIn('"name": "Ada"', output)
-        self.assertEqual(client.complete_message.call_args.kwargs["output_format"]["required"], ["name"])
-
-    def test_json_usage_and_errors(self):
-        output, _ = self.run_cli(["/json", "/json only-a-file.json", "/json /no/such/schema.json Hello"])
-        self.assertEqual(output.count("Usage: /json <schema-file> <request>"), 2)
-        self.assertIn("Structured answer failed: Could not read schema file", output)
-
-    def test_commands_are_listed_in_help(self):
+    def test_quiz_is_listed_in_help(self):
         output, _ = self.run_cli(["/help"])
         self.assertIn("/quiz [--questions", output)
-        self.assertIn("/json <schema-file> <request>", output)
 
 
 if __name__ == "__main__":
