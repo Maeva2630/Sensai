@@ -26,6 +26,14 @@ from utilities.ollama_client import (
 
 MAX_TOOL_ITERATIONS = 5
 
+# The RAG instructions forbid outside knowledge. When tools are offered in the same
+# request, the model must still be allowed to call them.
+RAG_TOOLS_NOTE = (
+    "\n\nTools are available in this conversation. When the request needs a tool "
+    "(calculation, date and time, timer...), call it. Use the retrieved context above "
+    "for questions about the indexed documents."
+)
+
 # Dependency injection for tests and alternative entry points: callers can replace
 # external services with deterministic implementations without changing CLI settings.
 @dataclass(frozen=True)
@@ -176,10 +184,10 @@ def cli(
             tools = registry.to_ollama_tools(user_input)
             rag_system_message = None
             prepared_context = None
-            # A tool-specific request should be handled by its matching tool,
-            # not by document retrieval. For all other requests, RAG keeps its
-            # normal document-grounded behavior.
-            if session.rag_enabled and not tools:
+            # A request explicitly claimed by a tool (for example "what time is it")
+            # is handled by that tool, not by document retrieval. Any other request
+            # keeps RAG's document-grounded behavior, even when tools are offered.
+            if session.rag_enabled and not registry.claims_request(user_input):
                 try:
                     if session.metadata_filter is None:
                         prepared_context = runtime.rag_context_provider.prepare(user_input)
@@ -189,6 +197,8 @@ def cli(
                             session.metadata_filter,
                         )
                     rag_system_message = prepared_context.system_message
+                    if tools:
+                        rag_system_message += RAG_TOOLS_NOTE
                     if session.metadata_filter and not prepared_context.results:
                         print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
