@@ -78,6 +78,10 @@ class ToolRegistry:
             tools = (tool for tool in tools if tool.is_relevant_for(user_input))
         return [tool.to_ollama_tool() for tool in tools]
 
+    def claims_request(self, user_input: str) -> bool:
+        """Return whether any tool explicitly claims this request."""
+        return any(tool.claims_request(user_input) for tool in self._tools.values())
+
     def execute(self, name: str, arguments: Any) -> ToolResult:
         """Validate and run a tool. Never raises: failures come back as an error result."""
         tool = self.get(name)

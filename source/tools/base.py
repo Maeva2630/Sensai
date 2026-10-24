@@ -43,3 +43,12 @@ class Tool(ABC):
         override this method to avoid distracting the model on unrelated tasks.
         """
         return True
+
+    def claims_request(self, user_input: str) -> bool:
+        """Return whether the request is explicitly meant for this tool.
+
+        A claimed request is answered by the tool instead of document retrieval
+        when RAG mode is on. Tools without a precise routing rule never claim a
+        request, so offering them does not switch RAG off.
+        """
+        return False
