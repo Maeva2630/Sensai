@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 from cli.cli import CliDependencies, cli
+from mcp.manager import MCPManager
 from rag.context import PreparedContext
 from rag.storage import MetadataFilter, SearchResult
 
@@ -26,6 +27,13 @@ def tool_call_chunk(name, arguments):
         '{"message": {"content": "", "tool_calls": ['
         '{"function": {"name": "' + name + '", "arguments": ' + arguments + "}}]}}"
     ).encode()
+
+
+def setUpModule():
+    # The CLI would start the servers declared in the repository's mcp_servers.json.
+    patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
 
 
 class TestPromptWorkflows(unittest.TestCase):

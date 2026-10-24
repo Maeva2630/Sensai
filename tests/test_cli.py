@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from mcp.manager import MCPManager
 from cli.commands import GLOBAL_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
@@ -29,6 +30,13 @@ from utilities.ollama_client import (
 from rag.context import ArchiveIndexingResult, IndexingResult, PreparedContext
 from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, DocumentIngestionError, IngestedDocument
 from rag.storage import SearchResult
+
+
+def setUpModule():
+    # The CLI would start the servers declared in the repository's mcp_servers.json.
+    patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
 
 
 class TestCLIPromptInjection(unittest.TestCase):
