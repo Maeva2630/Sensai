@@ -166,6 +166,8 @@ def cli(
         conversation_session,
         GLOBAL_COMMANDS,
         registry,
+        runtime.chat_client,
+        runtime.rag_context_provider,
     )
 
     while True:

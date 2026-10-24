@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from config import FeatureConfig
 from memory.session_manager import SessionManager
@@ -52,3 +53,5 @@ class CliCommandContext:
     conversation_session: SessionManager
     command_definitions: tuple[CommandDefinition, ...] = ()
     registry: ToolRegistry | None = None
+    chat_client: Any = None
+    rag_context_provider: Any = None
