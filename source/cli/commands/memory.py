@@ -1,6 +1,11 @@
 """CLI commands owned by the conversation-memory feature."""
 
+from cli.error_handling import report_cli_error
 from cli.session import CliCommandContext, CliSession, CommandDefinition
+from observability.app_logging import get_logger
+
+
+logger = get_logger("commands.memory")
 
 
 def _dispatch_save(
@@ -25,7 +30,7 @@ def _dispatch_load(
     try:
         context.conversation_session.load(arguments[0].strip())
     except FileNotFoundError as error:
-        print(f"Error: {error}")
+        report_cli_error(error, logger)
         return
     print(f"Session {arguments[0].strip()} loaded.")
 

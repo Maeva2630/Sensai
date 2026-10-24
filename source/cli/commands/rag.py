@@ -2,7 +2,9 @@
 
 import shlex
 
+from cli.error_handling import report_cli_error
 from cli.session import CliCommandContext, CliSession, CommandDefinition
+from observability.app_logging import get_logger
 from rag.context import ArchiveIndexingResult, RAGIndexer
 from rag.embeddings import EmbeddingError
 from rag.ingestion import DocumentIngestionError
@@ -10,6 +12,7 @@ from rag.storage import MetadataFilter, VectorStoreError
 
 
 MULTIPLE_INGEST_FLAGS = frozenset({"-m", "--multiple"})
+logger = get_logger("commands.rag")
 
 
 def _handle_ingest_command(user_input: str, rag_indexer: RAGIndexer) -> None:
@@ -49,7 +52,7 @@ def _index_document(document_path: str, rag_indexer: RAGIndexer) -> bool:
     try:
         result = rag_indexer.index_document(document_path)
     except (DocumentIngestionError, EmbeddingError, VectorStoreError) as error:
-        print(f"Document indexing failed: {error}")
+        report_cli_error(error, logger)
         return False
 
     if isinstance(result, ArchiveIndexingResult):

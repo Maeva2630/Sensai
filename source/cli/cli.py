@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Any
 
 from cli.commands import GLOBAL_COMMANDS
+from cli.error_handling import report_cli_error
 from cli.commands.help import display_unknown_command
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
@@ -29,7 +30,6 @@ from rag.storage import VectorStoreError
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
-    OllamaConnectionError,
     OllamaError,
     OllamaHTTPClient,
     OllamaResponseError,
@@ -142,7 +142,7 @@ def cli(
         profile_manager = ProfileManager(profile_path=profile_path)
         loaded = conversation_session.load(session_id) if session_id else None
     except FileNotFoundError as error:
-        print(f"Error: {error}")
+        report_cli_error(error, logger)
         sys.exit(1)
     messages = list(loaded) if loaded else []
     _ensure_base_system_message(messages, profile_manager, app_config.personas.active.system_instructions)
@@ -181,6 +181,7 @@ def cli(
     line_editing_enabled = configure_line_editing()
 
     while True:
+        turn_start: int | None = None
         try:
             user_input = read_user_input(line_editing_enabled)
             if not user_input.strip():
@@ -215,9 +216,8 @@ def cli(
                     if session.metadata_filter and not prepared_context.results:
                         print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
-                    logger.warning("rag.request_error error_type=%s", type(error).__name__)
                     del messages[turn_start:]
-                    print(f"\nRAG Error: {error}")
+                    report_cli_error(error, logger)
                     continue
 
             for _ in range(MAX_TOOL_ITERATIONS):
@@ -294,18 +294,10 @@ def cli(
             print("Exiting.")
             sys.exit(0)
 
-        except OllamaConnectionError as error:
-            logger.warning("ollama.connection_error error_type=%s", type(error).__name__)
-            del messages[turn_start:]
-            print(
-                f"\nConnection Error: Unable to connect to Ollama server ({error}). "
-                "Please ensure Ollama is running."
-            )
-
-        except OllamaError as error:
-            logger.warning("ollama.request_error error_type=%s", type(error).__name__)
-            del messages[turn_start:]
-            print(f"\nWarning: {error}")
+        except Exception as error:
+            if turn_start is not None:
+                del messages[turn_start:]
+            report_cli_error(error, logger)
 
         finally:
             print()
