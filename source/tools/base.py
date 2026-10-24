@@ -10,6 +10,10 @@ class ToolResult:
     is_error: bool = False
 
 
+class ToolError(Exception):
+    """A tool failure whose message is safe and useful to show to the model and the user."""
+
+
 class Tool(ABC):
     """A function the model can call.
 
@@ -19,6 +23,8 @@ class Tool(ABC):
     name: str = ""
     description: str = ""
     parameters: Dict[str, Any] = {"type": "object", "properties": {}}
+    # True for tools whose output comes from outside our code (MCP servers, the web).
+    untrusted: bool = False
 
     @abstractmethod
     def execute(self, arguments: Dict[str, Any]) -> str:
