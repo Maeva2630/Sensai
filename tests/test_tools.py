@@ -124,9 +124,12 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_tool_exception_is_returned_not_raised(self):
         self.registry.register(BrokenTool())
-        result = self.registry.execute("broken", {})
+        with self.assertLogs("tools.registry", level="ERROR"):
+            result = self.registry.execute("broken", {})
         self.assertTrue(result.is_error)
-        self.assertIn("boom", result.content)
+        # The error type is reported, the internal message is only logged
+        self.assertIn("RuntimeError", result.content)
+        self.assertNotIn("boom", result.content)
 
 
 class StatsTool(Tool):
