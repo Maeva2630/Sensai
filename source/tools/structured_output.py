@@ -105,20 +105,6 @@ def validate_json(schema: Any, value: Any, path: str = "$") -> Optional[str]:
     return None
 
 
-def load_schema_file(path: str) -> Dict[str, Any]:
-    """Read a JSON schema file. Raises StructuredOutputError with a readable message."""
-    try:
-        with open(path, encoding="utf-8") as schema_file:
-            schema = json.load(schema_file)
-    except OSError as e:
-        raise StructuredOutputError(f"Could not read schema file '{path}': {e.strerror or e}") from e
-    except json.JSONDecodeError as e:
-        raise StructuredOutputError(f"Schema file '{path}' is not valid JSON: {e.msg}") from e
-    if not isinstance(schema, dict):
-        raise StructuredOutputError(f"Schema file '{path}' must contain a JSON object")
-    return schema
-
-
 def _answer_text(response: Any) -> str:
     try:
         content = response.json()["message"]["content"]

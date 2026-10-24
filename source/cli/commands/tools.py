@@ -1,6 +1,5 @@
 """CLI commands owned by the Tools feature."""
 
-import json
 import shlex
 
 from cli.session import CliCommandContext, CliSession, CommandDefinition
@@ -15,14 +14,12 @@ from tools.structured_output import (
     check_quiz,
     format_quiz,
     generate_structured,
-    load_schema_file,
     quiz_messages,
 )
 from utilities.ollama_client import OllamaError
 
 MAX_EXCERPT_CHARACTERS = 4000
 QUIZ_USAGE = f"Usage: /quiz [--questions <1-{MAX_QUIZ_QUESTIONS}>] <topic>"
-JSON_USAGE = "Usage: /json <schema-file> <request>"
 
 
 def _dispatch_tools(
@@ -95,33 +92,6 @@ def _dispatch_quiz(
     print(format_quiz(quiz))
 
 
-def _dispatch_json(
-    user_input: str,
-    _session: CliSession,
-    context: CliCommandContext,
-) -> None:
-    """Answer a request with JSON that matches a schema file."""
-    parts = user_input.split(maxsplit=2)
-    if len(parts) < 3 or not parts[2].strip():
-        print(JSON_USAGE)
-        return
-
-    try:
-        schema = load_schema_file(parts[1])
-        value = generate_structured(
-            context.chat_client,
-            [
-                {"role": "system", "content": "Answer only with JSON that matches the requested schema."},
-                {"role": "user", "content": parts[2].strip()},
-            ],
-            schema,
-        )
-    except (StructuredOutputError, OllamaError) as error:
-        print(f"Structured answer failed: {error}")
-        return
-    print(json.dumps(value, indent=2, ensure_ascii=False))
-
-
 TOOL_COMMANDS: tuple[CommandDefinition, ...] = (
     CommandDefinition(
         name="/tools",
@@ -136,12 +106,5 @@ TOOL_COMMANDS: tuple[CommandDefinition, ...] = (
         description="Generate a validated multiple-choice quiz, from the indexed course when RAG is on.",
         feature="Tools",
         handler=_dispatch_quiz,
-    ),
-    CommandDefinition(
-        name="/json",
-        usage="/json <schema-file> <request>",
-        description="Answer a request with JSON that matches a schema file.",
-        feature="Tools",
-        handler=_dispatch_json,
     ),
 )
