@@ -137,6 +137,30 @@ class TestGetTimeTool(unittest.TestCase):
         self.assertFalse(result.is_error)
         self.assertRegex(result.content, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
+    def test_time_tool_claims_explicit_time_requests(self):
+        tool = GetTimeTool()
+        self.assertTrue(tool.claims_request("Quelle heure est-il ?"))
+        self.assertTrue(tool.claims_request("What is the current time?"))
+
+    def test_time_tool_ignores_time_complexity_questions(self):
+        tool = GetTimeTool()
+        self.assertFalse(tool.is_relevant_for("What is the time complexity of this function?"))
+        self.assertFalse(tool.claims_request("What is the time complexity of this function?"))
+
+
+class TestClaimsRequest(unittest.TestCase):
+
+    def test_tool_without_routing_rule_never_claims_a_request(self):
+        self.assertFalse(AddTool().claims_request("anything"))
+
+    def test_registry_claims_a_request_only_when_a_tool_claims_it(self):
+        registry = ToolRegistry()
+        registry.register(AddTool())
+        self.assertFalse(registry.claims_request("Quelle heure est-il ?"))
+        registry.register(GetTimeTool())
+        self.assertTrue(registry.claims_request("Quelle heure est-il ?"))
+        self.assertFalse(registry.claims_request("Summarize my course"))
+
 
 if __name__ == "__main__":
     unittest.main()
