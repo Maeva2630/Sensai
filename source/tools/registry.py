@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from tools.base import Tool, ToolResult
@@ -24,6 +25,41 @@ def _check_type(name: str, value: Any, declared: Any) -> Optional[str]:
     if is_bool_as_number or not isinstance(value, expected):
         return f"argument '{name}' must be of type {' or '.join(n for n in names if isinstance(n, str))}"
     return None
+
+
+def _coerce_value(value: str, declared: Any) -> Any:
+    """Turn a string produced by the model into the JSON type the schema declares."""
+    names = declared if isinstance(declared, list) else [declared]
+    if "string" in names:
+        return value
+    if "boolean" in names and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        return value
+    wanted = tuple(_JSON_TYPES[n] for n in names if isinstance(n, str) and n in _JSON_TYPES and n != "boolean")
+    if wanted and isinstance(parsed, wanted) and not isinstance(parsed, bool):
+        return parsed
+    return value
+
+
+def coerce_arguments(schema: Dict[str, Any], arguments: Any) -> Any:
+    """Fix arguments that small models send as strings ("10", "[1, 2]") instead of numbers or arrays.
+
+    Only string values for properties declared with a non-string type are converted, and
+    only when the string is valid JSON of that type. Anything else is left for validation.
+    """
+    if not isinstance(arguments, dict):
+        return arguments
+    properties = schema.get("properties", {})
+    coerced = {}
+    for name, value in arguments.items():
+        spec = properties.get(name)
+        if isinstance(value, str) and isinstance(spec, dict) and "type" in spec:
+            value = _coerce_value(value, spec["type"])
+        coerced[name] = value
+    return coerced
 
 
 def validate_arguments(schema: Dict[str, Any], arguments: Any) -> Optional[str]:
@@ -88,6 +124,7 @@ class ToolRegistry:
         if tool is None:
             return ToolResult(f"Unknown tool '{name}'", is_error=True)
 
+        arguments = coerce_arguments(tool.parameters, arguments)
         error = validate_arguments(tool.parameters, arguments)
         if error:
             return ToolResult(f"Invalid arguments for '{name}': {error}", is_error=True)
