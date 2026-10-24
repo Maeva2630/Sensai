@@ -1,3 +1,4 @@
+import json
 import unittest
 import sys
 import os
@@ -126,6 +127,51 @@ class TestToolRegistry(unittest.TestCase):
         result = self.registry.execute("broken", {})
         self.assertTrue(result.is_error)
         self.assertIn("boom", result.content)
+
+
+class StatsTool(Tool):
+    name = "stats"
+    description = "Mean of marks."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "marks": {"type": "array", "items": {"type": "number"}},
+            "minutes": {"type": "number"},
+            "count": {"type": "integer"},
+            "flag": {"type": "boolean"},
+            "label": {"type": "string"},
+        },
+    }
+
+    def execute(self, arguments):
+        return json.dumps(arguments, sort_keys=True)
+
+
+class TestArgumentCoercion(unittest.TestCase):
+    """Small models often send numbers and lists as strings."""
+
+    def setUp(self):
+        self.registry = ToolRegistry()
+        self.registry.register(StatsTool())
+
+    def run_tool(self, arguments):
+        return self.registry.execute("stats", arguments)
+
+    def test_string_array_and_numbers_are_converted(self):
+        result = self.run_tool({"marks": "[12, 15, 9]", "minutes": "10", "count": "3"})
+        self.assertFalse(result.is_error)
+        self.assertEqual(json.loads(result.content), {"marks": [12, 15, 9], "minutes": 10, "count": 3})
+
+    def test_string_boolean_is_converted(self):
+        self.assertEqual(json.loads(self.run_tool({"flag": "true"}).content), {"flag": True})
+
+    def test_string_properties_are_left_alone(self):
+        self.assertEqual(json.loads(self.run_tool({"label": "10"}).content), {"label": "10"})
+
+    def test_values_that_do_not_match_the_type_still_fail_validation(self):
+        for arguments in [{"marks": "not a list"}, {"minutes": "ten"}, {"count": "2.5"}, {"marks": "5"}]:
+            with self.subTest(arguments=arguments):
+                self.assertTrue(self.run_tool(arguments).is_error)
 
 
 class TestGetTimeTool(unittest.TestCase):
