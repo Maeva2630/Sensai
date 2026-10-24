@@ -261,6 +261,27 @@ class TestOllamaHTTPClient(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "request_timeout"):
             OllamaHTTPClient(request_timeout=0)
 
+    @patch("requests.post")
+    def test_complete_message_with_output_format(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+        schema = {"type": "object", "properties": {"title": {"type": "string"}}}
+
+        self.client.complete_message([], output_format=schema)
+
+        self.assertEqual(mock_post.call_args.kwargs["json"]["format"], schema)
+
+    @patch("requests.post")
+    def test_output_format_is_omitted_by_default(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        self.client.complete_message([])
+
+        self.assertNotIn("format", mock_post.call_args.kwargs["json"])
+
     def test_parse_tool_calls_from_message(self):
         message = {"role": "assistant", "content": "", "tool_calls": [
             {"function": {"name": "add", "arguments": {"a": 1, "b": 2}}},
