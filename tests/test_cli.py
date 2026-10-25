@@ -1102,6 +1102,90 @@ class TestCLICommandDispatch(unittest.TestCase):
         self.assertIn("- Session total: 325 tokens (250 prompt, 75 completion)", output)
         self.assertIn("Usage: /tokens", output)
 
+    def test_cli_session_budget_warning_thresholds(self):
+        session = CliSession(context_window=4096)
+        session.record_turn_tokens(500, 200)
+        self.assertAlmostEqual(session.context_usage_ratio, 700 / 4096)
+        self.assertIsNone(session.get_budget_warning())
+
+        session.record_turn_tokens(3277, 0)
+        self.assertGreaterEqual(session.context_usage_ratio, 0.8)
+        warning = session.get_budget_warning()
+        self.assertIsNotNone(warning)
+        self.assertIn("Warning: Context token usage is at 80.0% (3277/4096 tokens).", warning)
+
+        session.record_turn_tokens(3000, 400)
+        warning = session.get_budget_warning()
+        self.assertIsNotNone(warning)
+        self.assertIn("Warning: Context token usage is at 83.0% (3400/4096 tokens).", warning)
+        self.assertIsNone(session.get_budget_warning(threshold=0.9))
+
+    @patch("builtins.input", side_effect=["Heavy context turn", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_context_budget_warning_displayed_when_threshold_exceeded(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.return_value = [
+            b'{"message": {"content": "Long answer"}, "done": true, "prompt_eval_count": 3000, "eval_count": 300}'
+        ]
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertIn("Warning: Context token usage is at 80.6% (3300/4096 tokens).", output)
+
+    @patch("builtins.input", side_effect=["Light turn", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_context_budget_warning_not_displayed_when_under_threshold(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.return_value = [
+            b'{"message": {"content": "Short answer"}, "done": true, "prompt_eval_count": 100, "eval_count": 25}'
+        ]
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertNotIn("Warning: Context token usage is at", output)
+
+    @patch("builtins.input", side_effect=["Heavy turn without memory", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_context_budget_warning_not_displayed_when_memory_disabled(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.return_value = [
+            b'{"message": {"content": "Long answer"}, "done": true, "prompt_eval_count": 3000, "eval_count": 300}'
+        ]
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli(app_config=AppConfig(features=FeatureConfig(memory_enabled=False)))
+
+        output = captured.getvalue()
+        self.assertNotIn("Warning: Context token usage is at", output)
+
     @patch("builtins.input", side_effect=["/load valid-id", "Follow-up question", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
