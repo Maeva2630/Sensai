@@ -15,6 +15,7 @@ from rag.storage import MetadataFilter
 from tools.registry import ToolRegistry
 
 
+DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8
 CommandHandler = Callable[[str, "CliSession", "CliCommandContext"], None]
 
 
@@ -62,6 +63,21 @@ class CliSession:
     def total_session_tokens(self) -> int:
         """Return cumulative tokens consumed across the active session."""
         return self.total_prompt_tokens + self.total_completion_tokens
+
+    @property
+    def context_usage_ratio(self) -> float:
+        """Return the ratio of active context token usage to the context window."""
+        return self.last_turn_tokens / max(1, self.context_window)
+
+    def get_budget_warning(self, threshold: float = DEFAULT_BUDGET_ALERT_THRESHOLD) -> str | None:
+        """Return a warning message when active context usage reaches or exceeds threshold."""
+        if self.context_usage_ratio >= threshold:
+            percentage = self.context_usage_ratio * 100
+            return (
+                f"Warning: Context token usage is at {percentage:.1f}% "
+                f"({self.last_turn_tokens}/{self.context_window} tokens)."
+            )
+        return None
 
     def record_turn_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
         """Update per-turn and cumulative session token counters."""

@@ -301,6 +301,11 @@ def cli(
             conversation_session.add_message("user", user_input)
             conversation_session.add_message("assistant", full_response)
 
+            if feature_config.memory_enabled:
+                warning = session.get_budget_warning()
+                if warning:
+                    print(f"\n{warning}")
+
 
         except (KeyboardInterrupt, EOFError):
             logger.info("cli.interrupted")
