@@ -42,7 +42,7 @@ SensAI reads [`config.json`](config.json) when the application starts. This file
 - `temperature` controls how varied the chat model responses are. A low value such as `0.2` is recommended for document-grounded answers because it is more stable and factual. Higher values can make conversation more creative but also less predictable.
 - `context_window` is sent to Ollama as `num_ctx`. A larger value lets the model consider more conversation and RAG context, but uses more RAM/VRAM and can make generation slower. `4096` is a reasonable local default for `llama3.2`; increase it only if your machine and model support it.
 - `rag_enabled` and `tools_enabled` determine whether those features are available. RAG starts off for a normal chat experience, then can be enabled with `/rag on` when `rag_enabled` is `true`. `source_display_enabled` controls whether verified sources are shown by default.
-- `memory_enabled` controls whether conversation session persistence (`/save`, `/load`, automatic save on exit) and token usage inspection (`/tokens`) are active.
+- `memory_enabled` controls whether conversation session persistence (`/save`, `/load`, automatic save on exit), token usage inspection (`/tokens`), and context budget threshold warnings (80% alert) are active.
 - The `rag` section controls retrieved chunk count, context budget, similarity threshold, and other implemented RAG settings.
 
 Invalid values are reported at startup instead of being silently ignored.
@@ -200,6 +200,12 @@ To inspect token consumption for the latest turn, current context window occupan
 
 ```text
 /tokens
+```
+
+When active context usage (prompt tokens + completion tokens) reaches or exceeds **80%** of the configured `context_window` (e.g. 4096 tokens), an automatic warning notification is printed at the end of the turn:
+
+```text
+Warning: Context token usage is at 80.6% (3300/4096 tokens).
 ```
 
 ### Ingest a document for RAG
