@@ -12,6 +12,7 @@ from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
 from mcp.manager import MCPManager
 from config import AppConfig, FeatureConfig, PersonaConfig, PersonasConfig
 from cli.commands import GLOBAL_COMMANDS
+from cli.commands.artifact import ARTIFACT_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
@@ -20,6 +21,7 @@ from cli.commands.rag import (
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
+from memory.artifact_manager import ArtifactManager
 # pyrefly: ignore [missing-import]
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
@@ -1578,6 +1580,61 @@ class TestCLIMCPTools(unittest.TestCase):
         _, register = self.run_cli(["exit"], manager)
 
         register.assert_called_once_with(manager.close)
+
+
+class TestCLIArtifactCommands(unittest.TestCase):
+    """Tests for /artifact and /doc CLI commands."""
+
+    def setUp(self):
+        import tempfile
+        self.temp_dir = tempfile.mkdtemp()
+        self.artifact_manager = ArtifactManager(session_id="test_cli", storage_dir=self.temp_dir)
+        self.conversation_session = MagicMock()
+        self.context = CliCommandContext(
+            feature_config=FeatureConfig(),
+            rag_indexer=MagicMock(),
+            conversation_session=self.conversation_session,
+            artifact_manager=self.artifact_manager,
+        )
+        self.session = CliSession()
+        self.handler = ARTIFACT_COMMANDS[0].handler
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_artifact_view_empty(self):
+        self.handler("/artifact", self.session, self.context)
+        self.handler("/artifact view", self.session, self.context)
+
+    def test_artifact_init_and_outline(self):
+        self.handler("/artifact init Project X", self.session, self.context)
+        self.assertTrue(self.artifact_manager.has_artifact())
+        self.assertEqual(self.artifact_manager.artifact.title, "Project X")
+
+        self.artifact_manager.update_section("Section 1", "Content 1")
+        self.handler("/artifact outline", self.session, self.context)
+        self.assertIn("Section 1", self.artifact_manager.get_outline())
+
+    def test_artifact_export(self):
+        self.artifact_manager.init_document("Export Test")
+        self.artifact_manager.update_section("Overview", "Content to export.")
+
+        export_file = os.path.join(self.temp_dir, "exported_doc.md")
+        self.handler(f"/artifact export {export_file}", self.session, self.context)
+
+        self.assertTrue(os.path.exists(export_file))
+        with open(export_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("# Export Test", content)
+        self.assertIn("Content to export.", content)
+
+    def test_artifact_reset(self):
+        self.artifact_manager.init_document("To Reset")
+        self.assertTrue(self.artifact_manager.has_artifact())
+
+        self.handler("/artifact reset", self.session, self.context)
+        self.assertFalse(self.artifact_manager.has_artifact())
 
 
 if __name__ == "__main__":
