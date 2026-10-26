@@ -1,8 +1,9 @@
 import argparse
 
 from cli.cli import cli
+from cli.error_handling import report_cli_error
 from config import ConfigurationError, load_config
-from rag.storage import VectorStoreError
+from observability.app_logging import configure_logging, get_logger
 
 def main():
     parser = argparse.ArgumentParser(description="Sensai CLI")
@@ -27,16 +28,28 @@ def main():
     except ConfigurationError as error:
         print(f"Configuration error: {error}")
         return
-    if app_config.features.memory_enabled:
-        print("Memory is enabled in config.json but is not implemented yet; it remains inactive.")
+    try:
+        configure_logging(app_config.logging)
+    except OSError as error:
+        print(f"Logging configuration error: {error}")
+        return
+    logger = get_logger("startup")
+    logger.info(
+        "application.started chat_model=%s embedding_model=%s rag_enabled=%s tools_enabled=%s memory_enabled=%s",
+        app_config.model.chat_model,
+        app_config.model.embedding_model,
+        app_config.features.rag_enabled,
+        app_config.features.tools_enabled,
+        app_config.features.memory_enabled,
+    )
     try:
         cli(
             session_id=args.session,
             profile_path=args.profile,
             app_config=app_config,
         )
-    except VectorStoreError as error:
-        print(f"RAG startup error: {error}")
+    except Exception as error:
+        report_cli_error(error, logger)
 
 if __name__ == "__main__":
     main()
