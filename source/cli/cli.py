@@ -34,6 +34,7 @@ from mcp.manager import MCPManager
 from rag.storage import VectorStoreError
 from tools.filesystem import filesystem_tools
 from tools.permissions import PermissionChecker, load_permissions
+from tools.quiz_export import QuizStore, SaveLastQuizTool
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -64,13 +65,19 @@ class CliDependencies:
     rag_context_provider: RAGContextProvider | None = None
 
 
-def default_registry(enabled: bool = True, permission_checker: PermissionChecker | None = None) -> ToolRegistry:
+def default_registry(
+    enabled: bool = True,
+    permission_checker: PermissionChecker | None = None,
+    quiz_store: QuizStore | None = None,
+) -> ToolRegistry:
     registry = ToolRegistry()
     if enabled:
         registry.register(GetTimeTool())
         if permission_checker is not None:
             for tool in filesystem_tools(permission_checker):
                 registry.register(tool)
+            if quiz_store is not None:
+                registry.register(SaveLastQuizTool(permission_checker, quiz_store))
     return registry
 
 
@@ -178,13 +185,14 @@ def cli(
         context_window=model_config.context_window,
     )
 
+    quiz_store = QuizStore()
     permission_checker, permission_warnings = load_permissions()
     for warning in permission_warnings:
         print(f"Warning: {warning}")
     registry = (
         dependencies.registry
         if dependencies.registry is not None
-        else default_registry(feature_config.tools_enabled, permission_checker)
+        else default_registry(feature_config.tools_enabled, permission_checker, quiz_store)
     )
     mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file()
     for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
@@ -210,6 +218,7 @@ def cli(
         chat_client=runtime.chat_client,
         rag_context_provider=runtime.rag_context_provider,
         permission_checker=permission_checker,
+        quiz_store=quiz_store,
     )
     line_editing_enabled = configure_line_editing()
 

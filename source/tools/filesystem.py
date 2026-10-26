@@ -81,7 +81,10 @@ class ReadFileTool(FilesystemTool):
 
 class WriteFileTool(FilesystemTool):
     name = "write_file"
-    description = "Write a text file in an allowed directory. Missing folders are created. An existing file is kept unless overwrite is true."
+    description = (
+        "Write a text file in an allowed directory. Missing folders are created. An existing file is kept unless overwrite is true. "
+        "Do not use it to export a quiz: use save_last_quiz."
+    )
     parameters = {
         "type": "object",
         "properties": {

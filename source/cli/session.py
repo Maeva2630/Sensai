@@ -104,3 +104,4 @@ class CliCommandContext:
     chat_client: OllamaHTTPClient | None = None
     rag_context_provider: Any = None
     permission_checker: Any = None
+    quiz_store: Any = None
