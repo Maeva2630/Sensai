@@ -1,0 +1,60 @@
+"""User-safe error reporting at the interactive CLI boundary."""
+
+from __future__ import annotations
+
+import logging
+
+from config import ConfigurationError
+from rag.embeddings import EmbeddingError
+from rag.ingestion import DocumentIngestionError
+from rag.storage import VectorStoreError
+from utilities.ollama_client import (
+    OllamaConnectionError,
+    OllamaError,
+    OllamaModelNotFoundError,
+)
+
+ErrorRule = tuple[type[Exception], str, str]
+
+_ERROR_RULES: tuple[ErrorRule, ...] = (
+    (
+        OllamaConnectionError,
+        "ollama_connection",
+        "Connection error: unable to reach Ollama. Make sure Ollama is running, then try again.",
+    ),
+    (
+        OllamaModelNotFoundError,
+        "ollama_model",
+        "Model error: the configured Ollama model was not found. Check config.json and install the model.",
+    ),
+    (OllamaError, "ollama_response", "Ollama could not complete this request. Please try again."),
+    (
+        DocumentIngestionError,
+        "document_ingestion",
+        "Document error: the file could not be ingested. Check that it exists, is supported, and readable.",
+    ),
+    (EmbeddingError, "rag_embedding", "RAG error: unable to generate document embeddings. Please try again."),
+    (VectorStoreError, "rag_storage", "RAG error: the local knowledge base is unavailable. Please try again."),
+    (ConfigurationError, "configuration", "Configuration error: check config.json and restart SensAI."),
+    (FileNotFoundError, "file_not_found", "File error: the requested file or session could not be found."),
+    (OSError, "file_system", "File error: SensAI could not access a required local file."),
+)
+_UNEXPECTED_ERROR = (
+    "unexpected",
+    "An unexpected error occurred and was handled safely. You can continue using SensAI.",
+)
+
+
+def report_cli_error(error: Exception, logger: logging.Logger) -> None:
+    """Log diagnostic details and display a concise, safe terminal message."""
+    category, message = _user_message(error)
+    logger.exception("cli.error category=%s error_type=%s", category, type(error).__name__)
+    print(f"\n{message}")
+
+
+def _user_message(error: Exception) -> tuple[str, str]:
+    """Map known failures to actionable messages without exposing internals."""
+    for error_type, category, message in _ERROR_RULES:
+        if isinstance(error, error_type):
+            return category, message
+    return _UNEXPECTED_ERROR

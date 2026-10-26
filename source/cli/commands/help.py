@@ -1,6 +1,7 @@
 """CLI help command generated from the registered command definitions."""
 
 from collections import defaultdict
+from difflib import get_close_matches
 
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 
@@ -25,6 +26,21 @@ def _dispatch_help(
         for command in commands:
             print(f"  {command.usage}")
             print(f"    {command.description}")
+
+
+def display_unknown_command(
+    user_input: str,
+    command_definitions: tuple[CommandDefinition, ...],
+) -> None:
+    """Explain an unrecognised slash command without sending it to the model."""
+    entered_command = user_input.split(maxsplit=1)[0]
+    command_names = [command.name for command in command_definitions]
+    suggestion = get_close_matches(entered_command, command_names, n=1, cutoff=0.6)
+
+    print(f"Unknown command: {entered_command}")
+    if suggestion:
+        print(f"Did you mean: {suggestion[0]}?")
+    print("Type /help to list available commands.")
 
 
 HELP_COMMANDS: tuple[CommandDefinition, ...] = (

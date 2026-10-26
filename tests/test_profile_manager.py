@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from memory.profile_manager import ProfileManager
+from personas.teacher_assistant import TEACHER_ASSISTANT_BASE_PROMPT
 
 
 class TestProfileManager(unittest.TestCase):
@@ -72,6 +73,17 @@ class TestProfileManager(unittest.TestCase):
         prompt = manager.build_system_prompt()
 
         self.assertIn("None", prompt)
+
+    def test_default_system_prompt_uses_the_teacher_assistant_persona(self):
+        profile_file = self.temp_path / "profile.json"
+        manager = ProfileManager(profile_path=profile_file)
+
+        prompt = manager.build_system_prompt()
+
+        self.assertIn(TEACHER_ASSISTANT_BASE_PROMPT, prompt)
+        self.assertIn("educational assistant that supports", prompt)
+        self.assertIn("primary user is an educator, not a learner", prompt)
+        self.assertIn("retrieved documents and RAG instructions", prompt)
 
 
 if __name__ == "__main__":
