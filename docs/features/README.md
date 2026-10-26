@@ -2,6 +2,9 @@
 
 [Home](../../README.md) · [User guide](../user-guide.md)
 
+For the complete `config.json` format and setting reference, see
+[configuration](../configuration.md).
+
 - [RAG](rag.md): index local documents and source code, retrieve excerpts, filter sources,
   and configure search.
 - [Tools and MCP](tools-and-mcp.md): use the native time tool and connect local MCP servers.

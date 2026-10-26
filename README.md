@@ -32,7 +32,8 @@ python3 source/main.py
 
 Model names, feature switches, local paths, and generation settings are configured in
 [`config.json`](config.json). Read the [user guide](docs/user-guide.md) before changing
-the configuration.
+the configuration. The [configuration reference](docs/configuration.md) explains the
+file format, location, required sections, optional settings, defaults, and validation.
 
 ## Implemented features
 
@@ -57,7 +58,9 @@ the configuration.
 ## Documentation
 
 - [User guide](docs/user-guide.md): install, configure, launch, and troubleshoot SensAI.
+- [Configuration reference](docs/configuration.md): `config.json` format, location,
+  required fields, optional settings, defaults, and validation.
 - [Feature documentation](docs/features/README.md): detailed guides, examples, limitations,
   and privacy considerations for every implemented feature.
-- [Configuration reference](docs/configuration.md): all `config.json` sections and values.
-- [Testing guide](docs/testing.md): run automated checks and functional prompt scenarios.
+- [Testing and development checks](docs/testing.md): automated tests, coverage, linting,
+  and optional live Ollama checks.
