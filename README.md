@@ -225,6 +225,31 @@ As conversations grow longer, older exchanges consume a substantial portion of t
 
 - **Automatic compression**: when context occupancy approaches the limit (>= 85% of `context_window`), SensAI automatically triggers a sliding-window summarization pass to avoid context window exhaustion.
 
+### Artifact & living state document
+
+SensAI supports maintaining a separate living deliverable document (`[M4]`) across conversation turns, distinct from raw chat history. The model can incrementally create, update, and refine sections without rewriting or corrupting the full document:
+
+- **View full document**:
+  ```text
+  /artifact
+  # or /doc
+  ```
+- **Inspect section outline**:
+  ```text
+  /artifact outline
+  ```
+- **Export to a Markdown file**:
+  ```text
+  /artifact export docs/project_spec.md
+  ```
+- **Initialize or reset**:
+  ```text
+  /artifact init "Technical Specification"
+  /artifact reset
+  ```
+
+Living artifacts are automatically persisted alongside conversations when running `/save` and restored upon loading via `/load <session_id>`. Context compression (`/compress`) leaves the artifact document completely intact.
+
 ### Ingest a document for RAG
 
 While the application is running, use the following command to validate, chunk, embed, and index a local document:
