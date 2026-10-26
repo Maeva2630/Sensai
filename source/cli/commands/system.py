@@ -9,7 +9,8 @@ def _dispatch_exit(
     context: CliCommandContext,
 ) -> None:
     """Save the current conversation, then ask the interactive loop to stop."""
-    context.conversation_session.save()
+    if context.feature_config.memory_enabled:
+        context.conversation_session.save()
     session.exit_requested = True
 
 
