@@ -1053,7 +1053,7 @@ class TestCLICommandDispatch(unittest.TestCase):
             ],
         )
 
-    @patch("builtins.input", side_effect=["/save", "/load some-id", "/tokens", "exit"])
+    @patch("builtins.input", side_effect=["/save", "/load some-id", "/tokens", "/compress", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
     def test_memory_commands_are_blocked_when_memory_is_disabled(
@@ -1068,7 +1068,7 @@ class TestCLICommandDispatch(unittest.TestCase):
         with patch("sys.stdout", captured):
             cli(app_config=AppConfig(features=FeatureConfig(memory_enabled=False)))
 
-        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 3)
+        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 4)
         mock_session.save.assert_not_called()
         mock_session.load.assert_not_called()
 
@@ -1186,6 +1186,88 @@ class TestCLICommandDispatch(unittest.TestCase):
         output = captured.getvalue()
         self.assertNotIn("Warning: Context token usage is at", output)
 
+    @patch("builtins.input", side_effect=["/compress", "/compress extra", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_compress_command_when_not_enough_history(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertIn("Compression skipped: Not enough dialogue turns to compress", output)
+        self.assertIn("Usage: /compress", output)
+
+    @patch("builtins.input", side_effect=["Q1", "Q2", "Q3", "/compress", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_compress_command_manual_success(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_session.messages = []
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.side_effect = [
+            [b'{"message": {"content": "A1"}, "done": true, "prompt_eval_count": 50, "eval_count": 20}'],
+            [b'{"message": {"content": "A2"}, "done": true, "prompt_eval_count": 70, "eval_count": 20}'],
+            [b'{"message": {"content": "A3"}, "done": true, "prompt_eval_count": 90, "eval_count": 20}'],
+        ]
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "Summary of Q1 and A1 topics."}
+        }
+        mock_client.complete_message.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertIn("Context compressed successfully:", output)
+        self.assertIn("Summary: Summary of Q1 and A1 topics.", output)
+
+    @patch("builtins.input", side_effect=["Q1", "Q2", "Q3", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_auto_compression_triggered_when_budget_critical(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_session.messages = []
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.side_effect = [
+            [b'{"message": {"content": "A1"}, "done": true, "prompt_eval_count": 50, "eval_count": 20}'],
+            [b'{"message": {"content": "A2"}, "done": true, "prompt_eval_count": 70, "eval_count": 20}'],
+            [b'{"message": {"content": "A3"}, "done": true, "prompt_eval_count": 3500, "eval_count": 100}'],
+        ]
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "Consolidated summary of prior turns."}
+        }
+        mock_client.complete_message.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertIn("Warning: Context token usage is at 87.9% (3600/4096 tokens).", output)
+        self.assertIn("Auto-compression triggered: condensed older turns", output)
+
     @patch("builtins.input", side_effect=["/load valid-id", "Follow-up question", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
@@ -1221,7 +1303,7 @@ class TestCLICommandDispatch(unittest.TestCase):
             ],
         )
 
-    @patch("builtins.input", side_effect=["/save", "/load some-id", "exit"])
+    @patch("builtins.input", side_effect=["/save", "/load some-id", "/tokens", "/compress", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
     def test_memory_commands_are_blocked_when_memory_is_disabled(
@@ -1236,63 +1318,91 @@ class TestCLICommandDispatch(unittest.TestCase):
         with patch("sys.stdout", captured):
             cli(app_config=AppConfig(features=FeatureConfig(memory_enabled=False)))
 
-        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 2)
+        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 4)
         mock_session.save.assert_not_called()
         mock_session.load.assert_not_called()
 
-    @patch("builtins.input", side_effect=["/load valid-id", "Follow-up question", "exit"])
+    @patch("builtins.input", side_effect=["/compress", "/compress extra", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
-    def test_slash_load_restores_conversation_context_for_next_turn(
+    def test_compress_command_when_not_enough_history(
         self, mock_sm_cls, mock_client_cls, mock_input
     ):
         mock_session = MagicMock()
-        mock_session.load.return_value = [
-            {"role": "user", "content": "Previous question"},
-            {"role": "assistant", "content": "Previous answer"},
-        ]
+        mock_session.load.return_value = None
         mock_sm_cls.return_value = mock_session
         mock_client = MagicMock()
-        mock_client.stream_message.return_value = [
-            b'{"message": {"content": "Follow-up answer"}}'
-        ]
         mock_client_cls.return_value = mock_client
 
         captured = io.StringIO()
         with patch("sys.stdout", captured):
             cli()
 
-        self.assertIn("Session valid-id loaded.", captured.getvalue())
-        sent_messages = mock_client.stream_message.call_args.args[0]
-        self.assertEqual(sent_messages[0]["role"], "system")
-        self.assertEqual(
-            sent_messages[1:],
-            [
-                {"role": "user", "content": "Previous question"},
-                {"role": "assistant", "content": "Previous answer"},
-                {"role": "user", "content": "Follow-up question"},
-                {"role": "assistant", "content": "Follow-up answer"},
-            ],
-        )
+        output = captured.getvalue()
+        self.assertIn("Compression skipped: Not enough dialogue turns to compress", output)
+        self.assertIn("Usage: /compress", output)
 
-    @patch("builtins.input", side_effect=["/save", "/load some-id", "exit"])
+    @patch("builtins.input", side_effect=["Q1", "Q2", "Q3", "/compress", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
-    def test_memory_commands_are_blocked_when_memory_is_disabled(
+    def test_compress_command_manual_success(
         self, mock_sm_cls, mock_client_cls, mock_input
     ):
         mock_session = MagicMock()
         mock_session.load.return_value = None
+        mock_session.messages = []
         mock_sm_cls.return_value = mock_session
-        mock_client_cls.return_value = MagicMock()
+        mock_client = MagicMock()
+        mock_client.stream_message.side_effect = [
+            [b'{"message": {"content": "A1"}, "done": true, "prompt_eval_count": 50, "eval_count": 20}'],
+            [b'{"message": {"content": "A2"}, "done": true, "prompt_eval_count": 70, "eval_count": 20}'],
+            [b'{"message": {"content": "A3"}, "done": true, "prompt_eval_count": 90, "eval_count": 20}'],
+        ]
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "Summary of Q1 and A1 topics."}
+        }
+        mock_client.complete_message.return_value = mock_response
+        mock_client_cls.return_value = mock_client
 
         captured = io.StringIO()
         with patch("sys.stdout", captured):
-            cli(app_config=AppConfig(features=FeatureConfig(memory_enabled=False)))
+            cli()
 
-        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 2)
-        mock_session.save.assert_not_called()
-        mock_session.load.assert_not_called()
+        output = captured.getvalue()
+        self.assertIn("Context compressed successfully:", output)
+        self.assertIn("Summary: Summary of Q1 and A1 topics.", output)
+
+    @patch("builtins.input", side_effect=["Q1", "Q2", "Q3", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_auto_compression_triggered_when_budget_critical(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_session.messages = []
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.side_effect = [
+            [b'{"message": {"content": "A1"}, "done": true, "prompt_eval_count": 50, "eval_count": 20}'],
+            [b'{"message": {"content": "A2"}, "done": true, "prompt_eval_count": 70, "eval_count": 20}'],
+            [b'{"message": {"content": "A3"}, "done": true, "prompt_eval_count": 3500, "eval_count": 100}'],
+        ]
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "Consolidated summary of prior turns."}
+        }
+        mock_client.complete_message.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertIn("Warning: Context token usage is at 87.9% (3600/4096 tokens).", output)
+        self.assertIn("Auto-compression triggered: condensed older turns", output)
 
     @patch("builtins.input", side_effect=["", "   ", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
