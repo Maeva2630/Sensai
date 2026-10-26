@@ -7,6 +7,7 @@ from typing import Any
 
 from observability.monitoring import DisabledMonitoringStore, MonitoringStore
 from tools.registry import ToolRegistry
+from tools.safety import mark_untrusted
 from utilities.ollama_client import build_tool_message, parse_tool_calls
 from observability.app_logging import get_logger
 
@@ -45,4 +46,6 @@ def run_tool_calls(
                 # Observability is best effort and must never block a tool result.
                 logger.warning("monitoring.tool_write_failed error_type=%s", type(error).__name__)
         print(f"[tool] {label}: {result.content}")
-        messages.append(build_tool_message(call["name"], result.content))
+        tool = registry.get(call["name"])
+        content = mark_untrusted(call["name"], result.content) if tool is not None and tool.untrusted else result.content
+        messages.append(build_tool_message(call["name"], content))

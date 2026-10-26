@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional
 
-from mcp.client import MCPClient, MCPError
+from mcp.client import MCPClient, MCPError, MCPTimeoutError, MCPToolError
 from mcp.config import DEFAULT_CONFIG_PATH, MCPServerConfig, load_mcp_config
-from tools.base import Tool
+from tools.base import Tool, ToolError
 from tools.registry import ToolRegistry
 
 
@@ -21,6 +21,8 @@ class MCPTool(Tool):
     never collide.
     """
 
+    untrusted = True
+
     def __init__(self, server: str, client: MCPClient, definition: Dict[str, Any]):
         self.server = server
         self.remote_name = definition["name"]
@@ -30,11 +32,16 @@ class MCPTool(Tool):
         self._client = client
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        result = self._client.call_tool(self.remote_name, arguments)
-        text = MCPClient.result_text(result)
-        if result.get("isError"):
-            raise RuntimeError(text or "the MCP tool reported an error")
-        return text
+        try:
+            result = self._client.call_tool(self.remote_name, arguments)
+            text = MCPClient.result_text(result)
+            if result.get("isError"):
+                raise MCPToolError(text or "the MCP tool reported an error")
+            return text
+        except MCPTimeoutError as e:
+            raise ToolError(f"MCP server '{self.server}' timed out: {e}") from e
+        except MCPError as e:
+            raise ToolError(f"MCP server '{self.server}': {e}") from e
 
 
 class MCPManager:

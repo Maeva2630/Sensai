@@ -14,6 +14,11 @@ class MCPError(Exception):
     pass
 
 
+class MCPToolError(MCPError):
+    """Raised when an MCP tool reports a failure (`isError` in its result)."""
+    pass
+
+
 class MCPConnectionError(MCPError):
     """Raised when the MCP server cannot be started or stops responding."""
     pass

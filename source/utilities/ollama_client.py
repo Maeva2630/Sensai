@@ -150,21 +150,29 @@ class OllamaHTTPClient:
             raise OllamaConnectionError(f"Unexpected error while getting embedding: {e}") from e
 
     def _chat_payload(self, messages: List[Dict[str, Any]], stream: bool,
-                      tools: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+                      tools: Optional[List[Dict[str, Any]]],
+                      output_format: Any = None) -> Dict[str, Any]:
         payload = {"model": self.model, "messages": messages, "stream": stream}
         if self.options:
             payload["options"] = self.options
         if tools:
             payload["tools"] = tools
+        if output_format:
+            payload["format"] = output_format
         return payload
 
     def complete_message(self, messages: List[Dict[str, Any]],
-                         tools: Optional[List[Dict[str, Any]]] = None) -> requests.Response:
-        """Send a non-streaming chat completion request, optionally offering tools."""
+                         tools: Optional[List[Dict[str, Any]]] = None,
+                         output_format: Any = None) -> requests.Response:
+        """Send a non-streaming chat completion request.
+
+        `tools` offers tools to the model. `output_format` is `"json"` or a JSON schema:
+        Ollama then constrains the answer to valid JSON (matching the schema).
+        """
         try:
             response = requests.post(
                 f"{self.base_url}/api/chat",
-                json=self._chat_payload(messages, False, tools),
+                json=self._chat_payload(messages, False, tools, output_format),
                 timeout=self.request_timeout,
             )
             if response.status_code != 200:

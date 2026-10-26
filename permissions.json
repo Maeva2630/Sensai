@@ -1,0 +1,7 @@
+{
+  "allowed": [
+    {"path": "courses", "modes": ["read"]},
+    {"path": "exports", "modes": ["read", "write"]}
+  ],
+  "deny": [".env", ".git", "*.pem", "*.key", "id_rsa*"]
+}

@@ -102,3 +102,6 @@ class CliCommandContext:
     profile_manager: ProfileManager | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
     chat_client: OllamaHTTPClient | None = None
+    rag_context_provider: Any = None
+    permission_checker: Any = None
+    quiz_store: Any = None
