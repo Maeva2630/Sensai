@@ -191,6 +191,12 @@ def cli(
     )
 
     artifact_manager = ArtifactManager(session_id=conversation_session.session_id)
+    if session_id:
+        try:
+            artifact_manager.load()
+            logger.info("artifact.loaded_at_startup session_id=%s", session_id)
+        except FileNotFoundError:
+            pass
     quiz_store = QuizStore()
     permission_checker, permission_warnings = load_permissions()
     for warning in permission_warnings:
