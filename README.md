@@ -304,6 +304,24 @@ You: /quiz --questions 3 Le théorème de Pythagore
 
 `/quiz` prints a multiple-choice quiz followed by its answer key. With `/rag on`, the questions are built only from the indexed course; if no excerpt matches the topic, nothing is generated. Without RAG, the model uses its own knowledge.
 
+The number of questions is checked: if the model writes another number, it is asked again.
+
+Save the quiz with `--save`. The path must be in a directory that [`permissions.json`](permissions.json) allows to write (`exports/` by default):
+
+```text
+You: /quiz --questions 5 --save exports/volcans.md Les volcans
+You: /quiz --questions 5 --save exports/volcans_eleves.md --no-answers Les volcans
+```
+
+- A `.json` path saves the quiz as JSON, any other path as readable text.
+- `--no-answers` leaves the answer key out, for the student copy.
+- An existing file is kept unless you add `--overwrite`.
+- A refused path or a write error is reported, and the quiz stays displayed.
+
+The quiz also stays in the conversation, so you can ask the assistant about it. You can also ask it to export the quiz in plain words ("export the quiz to exports/volcans.md"): the assistant then calls the `save_last_quiz` tool, which saves the quiz the program generated, with its answer key, to a new file. The assistant never retypes it, because a small model cuts or changes a long text when it copies it. The tool cannot remove the answer key or replace a file: a small model fills optional parameters at random, so those choices stay with `/quiz --save --no-answers --overwrite`.
+
+The quiz is written in the `preferred_language` of `profile.json` (English by default). Change that value, or add `--language Français` for one quiz. The topic can contain apostrophes (`/quiz les volcans de l'Auvergne`); use double quotes for a path with spaces.
+
 A small model can write a well-formed quiz with a wrong answer key. The format is checked by the program, the content is not: read the answer key before using a quiz.
 
 ### MCP servers
