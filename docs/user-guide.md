@@ -63,6 +63,8 @@ Keep all required sections when editing the file. Set `model.chat_model` and
 `model.embedding_model` to installed Ollama models. A higher temperature can produce
 more varied answers; a larger `context_window` may require more memory and processing
 time. Neither setting guarantees factual accuracy. Restart SensAI after editing the file.
+See the [configuration reference](configuration.md) for the exact file location, complete
+JSON structure, accepted values, optional sections, persona prompts, and MCP distinction.
 
 ## 5. Start SensAI
 

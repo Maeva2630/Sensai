@@ -35,7 +35,9 @@ to save the session and leave. Model names, server address, features, and settin
 configured in [`config.json`](config.json).
 
 See the [user guide](docs/user-guide.md) for the full setup, Windows activation,
-configuration, an example document workflow, and troubleshooting.
+an example document workflow, and troubleshooting. The complete
+[configuration reference](docs/configuration.md) explains the file format, location,
+required sections, optional settings, defaults, and validation.
 
 ## Features
 
@@ -56,6 +58,8 @@ feature guides for details and privacy considerations.
 ## Documentation
 
 - [User guide](docs/user-guide.md): installation, configuration, running SensAI, and troubleshooting.
+- [Configuration reference](docs/configuration.md): `config.json` format, location,
+  required fields, optional settings, defaults, and validation.
 - [Feature documentation](docs/features/README.md): usage, examples, and limitations.
 - [Testing and development checks](docs/testing.md): automated tests, coverage, linting,
   and optional live Ollama checks.
