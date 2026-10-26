@@ -14,6 +14,11 @@ from cli.session import CliCommandContext, CliSession, CommandDefinition
 from cli.terminal import assistant_prefix, configure_line_editing, read_user_input
 from cli.tool_calls import run_tool_calls
 from config import AppConfig, FeatureConfig
+from memory.compression import (
+    DEFAULT_AUTO_COMPRESSION_THRESHOLD,
+    compress_history,
+    is_summary_message,
+)
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from observability.app_logging import get_logger
@@ -186,6 +191,7 @@ def cli(
         app_config.personas,
         profile_manager,
         messages,
+        chat_client=runtime.chat_client,
     )
     line_editing_enabled = configure_line_editing()
 
@@ -305,6 +311,23 @@ def cli(
                 warning = session.get_budget_warning()
                 if warning:
                     print(f"\n{warning}")
+                if session.context_usage_ratio >= DEFAULT_AUTO_COMPRESSION_THRESHOLD:
+                    compressed_msgs, result = compress_history(
+                        messages,
+                        runtime.chat_client,
+                    )
+                    if result.compressed:
+                        messages[:] = compressed_msgs
+                        persisted_messages = [
+                            dict(msg)
+                            for msg in compressed_msgs
+                            if msg.get("role") != "system" or is_summary_message(msg)
+                        ]
+                        conversation_session.messages[:] = persisted_messages
+                        print(
+                            f"Auto-compression triggered: condensed older turns "
+                            f"({result.messages_before} -> {result.messages_after} messages)."
+                        )
 
 
         except (KeyboardInterrupt, EOFError):

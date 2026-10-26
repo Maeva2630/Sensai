@@ -13,6 +13,7 @@ from observability.monitoring import DisabledMonitoringStore, MonitoringStore
 from rag.context import RAGIndexer
 from rag.storage import MetadataFilter
 from tools.registry import ToolRegistry
+from utilities.ollama_client import OllamaHTTPClient
 
 
 DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8
@@ -100,3 +101,4 @@ class CliCommandContext:
     personas: PersonasConfig = PersonasConfig()
     profile_manager: ProfileManager | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
+    chat_client: OllamaHTTPClient | None = None
