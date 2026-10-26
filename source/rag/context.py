@@ -155,6 +155,7 @@ class RAGContextProvider:
         # Avoid an unnecessary Ollama embedding call when there is no knowledge
         # base. The model still receives the missing-context instruction.
         if self.vector_store.count_chunks() == 0:
+            logger.info("rag.retrieval_skipped reason=empty_knowledge_base")
             return PreparedContext(self._build_message([]), [])
 
         query_embedding = self.embedding_generator.embed_query(query)

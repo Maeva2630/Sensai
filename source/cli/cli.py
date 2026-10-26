@@ -1,16 +1,33 @@
 import atexit
 import json
+import sqlite3
 import sys
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from cli.commands import GLOBAL_COMMANDS
+from cli.error_handling import report_cli_error
+from cli.commands.help import display_unknown_command
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
+from cli.terminal import assistant_prefix, configure_line_editing, read_user_input
 from cli.tool_calls import run_tool_calls
-from config import AppConfig
+from config import AppConfig, FeatureConfig
+from memory.compression import (
+    DEFAULT_AUTO_COMPRESSION_THRESHOLD,
+    compress_history,
+    is_summary_message,
+)
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
+from observability.app_logging import get_logger
+from observability.monitoring import (
+    DisabledMonitoringStore,
+    MonitoringStore,
+    create_monitoring_store,
+    estimate_tokens,
+)
 from rag.context import RAGContextProvider, RAGIndexer, format_source_attribution
 from rag.embeddings import EmbeddingError
 from mcp.manager import MCPManager
@@ -19,13 +36,13 @@ from tools.permissions import load_permissions
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
-    OllamaConnectionError,
     OllamaError,
     OllamaHTTPClient,
     OllamaResponseError,
 )
 
 MAX_TOOL_ITERATIONS = 5
+logger = get_logger("cli")
 
 # The RAG instructions forbid outside knowledge. When tools are offered in the same
 # request, the model must still be allowed to call them.
@@ -62,6 +79,7 @@ def _dispatch_command(
     """Run the first matching command handler and report whether input was a command."""
     for command in command_definitions:
         if command.matches(user_input):
+            logger.info("command.executed name=%s feature=%s", command.name, command.feature)
             command.handler(user_input, session, context)
             return True
     return False
@@ -71,6 +89,7 @@ def stream_response(
     client: OllamaHTTPClient,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    token_counts: dict[str, int] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Stream one model response and return its text and requested tool calls."""
     full_response = ""
@@ -95,7 +114,7 @@ def stream_response(
             raise OllamaResponseError("Ollama returned a response with invalid text content.")
         if content:
             if not printed_prefix:
-                print("Assistant: ", end="", flush=True)
+                print(assistant_prefix(), end="", flush=True)
                 printed_prefix = True
             print(content, end="", flush=True)
             full_response += content
@@ -103,6 +122,13 @@ def stream_response(
         if not isinstance(tool_calls, list):
             raise OllamaResponseError("Ollama returned invalid tool calls in a streaming response.")
         raw_tool_calls.extend(tool_calls)
+        if token_counts is not None:
+            prompt_eval_count = payload.get("prompt_eval_count")
+            if isinstance(prompt_eval_count, int) and not isinstance(prompt_eval_count, bool) and prompt_eval_count >= 0:
+                token_counts["prompt_tokens"] = prompt_eval_count
+            eval_count = payload.get("eval_count")
+            if isinstance(eval_count, int) and not isinstance(eval_count, bool) and eval_count >= 0:
+                token_counts["completion_tokens"] = eval_count
 
     if printed_prefix:
         print()
@@ -138,12 +164,15 @@ def cli(
         profile_manager = ProfileManager(profile_path=profile_path)
         loaded = conversation_session.load(session_id) if session_id else None
     except FileNotFoundError as error:
-        print(f"Error: {error}")
+        report_cli_error(error, logger)
         sys.exit(1)
-    messages = list(loaded) if loaded else [
-        {"role": "system", "content": profile_manager.build_system_prompt()}
-    ]
-    session = CliSession(show_sources=feature_config.source_display_enabled)
+    messages = list(loaded) if loaded else []
+    _ensure_base_system_message(messages, profile_manager, app_config.personas.active.system_instructions)
+    session = CliSession(
+        show_sources=feature_config.source_display_enabled,
+        active_persona_id=app_config.personas.active.identifier,
+        context_window=model_config.context_window,
+    )
 
     registry = (
         dependencies.registry
@@ -170,20 +199,29 @@ def cli(
         conversation_session,
         GLOBAL_COMMANDS,
         registry,
-        runtime.chat_client,
-        runtime.rag_context_provider,
-        permission_checker,
+        _create_monitoring_store(app_config),
+        app_config.personas,
+        profile_manager,
+        messages,
+        chat_client=runtime.chat_client,
+        rag_context_provider=runtime.rag_context_provider,
+        permission_checker=permission_checker,
     )
+    line_editing_enabled = configure_line_editing()
 
     while True:
+        turn_start: int | None = None
         try:
-            user_input = input("You: ")
+            user_input = read_user_input(line_editing_enabled)
             if not user_input.strip():
                 continue
 
             if _dispatch_command(user_input, session, command_context, GLOBAL_COMMANDS):
                 if session.exit_requested:
                     break
+                continue
+            if user_input.startswith("/"):
+                display_unknown_command(user_input, GLOBAL_COMMANDS)
                 continue
 
             turn_start = len(messages)
@@ -210,12 +248,56 @@ def cli(
                         print("No indexed chunks match the active RAG filter.")
                 except (EmbeddingError, VectorStoreError) as error:
                     del messages[turn_start:]
-                    print(f"\nRAG Error: {error}")
+                    report_cli_error(error, logger)
                     continue
 
             for _ in range(MAX_TOOL_ITERATIONS):
                 request_messages = _request_messages(messages, rag_system_message)
-                full_response, raw_tool_calls = stream_response(runtime.chat_client, request_messages, tools)
+                session.last_request_messages = [message.copy() for message in request_messages]
+                session.last_rag_context = rag_system_message
+                logger.debug(
+                    "model.request_prepared message_count=%s rag_context=%s tool_definitions=%s",
+                    len(request_messages),
+                    rag_system_message is not None,
+                    len(tools),
+                )
+                started_at = perf_counter()
+                token_counts: dict[str, int] = {}
+                try:
+                    full_response, raw_tool_calls = stream_response(
+                        runtime.chat_client,
+                        request_messages,
+                        tools,
+                        token_counts=token_counts,
+                    )
+                except OllamaError as error:
+                    _record_model_interaction(
+                        command_context,
+                        model_config.chat_model,
+                        app_config.monitoring.prompt_version,
+                        feature_config,
+                        request_messages,
+                        "",
+                        prepared_context,
+                        (perf_counter() - started_at) * 1000,
+                        "error",
+                        type(error).__name__,
+                    )
+                    raise
+                prompt_tokens = token_counts.get("prompt_tokens", estimate_tokens(request_messages))
+                completion_tokens = token_counts.get("completion_tokens", estimate_tokens(full_response))
+                session.record_turn_tokens(prompt_tokens, completion_tokens)
+                interaction_id = _record_model_interaction(
+                    command_context,
+                    model_config.chat_model,
+                    app_config.monitoring.prompt_version,
+                    feature_config,
+                    request_messages,
+                    full_response,
+                    prepared_context,
+                    (perf_counter() - started_at) * 1000,
+                    "success",
+                )
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
                 if raw_tool_calls:
@@ -228,26 +310,109 @@ def cli(
                         if attribution:
                             print(f"\n{attribution}")
                     break
-                run_tool_calls(registry, raw_tool_calls, messages)
+                run_tool_calls(
+                    registry,
+                    raw_tool_calls,
+                    messages,
+                    command_context.monitoring_store,
+                    interaction_id,
+                )
             else:
                 print(f"\nWarning: stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer.")
 
             conversation_session.add_message("user", user_input)
             conversation_session.add_message("assistant", full_response)
 
+            if feature_config.memory_enabled:
+                warning = session.get_budget_warning()
+                if warning:
+                    print(f"\n{warning}")
+                if session.context_usage_ratio >= DEFAULT_AUTO_COMPRESSION_THRESHOLD:
+                    compressed_msgs, result = compress_history(
+                        messages,
+                        runtime.chat_client,
+                    )
+                    if result.compressed:
+                        messages[:] = compressed_msgs
+                        persisted_messages = [
+                            dict(msg)
+                            for msg in compressed_msgs
+                            if msg.get("role") != "system" or is_summary_message(msg)
+                        ]
+                        conversation_session.messages[:] = persisted_messages
+                        print(
+                            f"Auto-compression triggered: condensed older turns "
+                            f"({result.messages_before} -> {result.messages_after} messages)."
+                        )
+
 
         except (KeyboardInterrupt, EOFError):
-            conversation_session.save()
+            logger.info("cli.interrupted")
+            if feature_config.memory_enabled:
+                conversation_session.save()
             print("Exiting.")
             sys.exit(0)
 
-        except OllamaConnectionError as error:
-            del messages[turn_start:]
-            print(
-                f"\nConnection Error: Unable to connect to Ollama server ({error}). "
-                "Please ensure Ollama is running."
-            )
+        except Exception as error:
+            if turn_start is not None:
+                del messages[turn_start:]
+            report_cli_error(error, logger)
 
-        except OllamaError as error:
-            del messages[turn_start:]
-            print(f"\nWarning: {error}")
+        finally:
+            print()
+
+
+def _create_monitoring_store(app_config: AppConfig) -> MonitoringStore | DisabledMonitoringStore:
+    """Create optional local metrics storage without preventing the CLI from starting."""
+    try:
+        return create_monitoring_store(app_config.monitoring)
+    except (OSError, sqlite3.Error) as error:
+        logger.warning("monitoring.disabled error_type=%s", type(error).__name__)
+        print(f"Warning: monitoring is disabled because its database could not be opened: {error}")
+        return DisabledMonitoringStore()
+
+
+def _ensure_base_system_message(
+    messages: list[dict[str, Any]],
+    profile_manager: ProfileManager,
+    persona_prompt: str,
+) -> None:
+    """Insert the active persona when a loaded history has no system message."""
+    system_message = {"role": "system", "content": profile_manager.build_system_prompt(persona_prompt)}
+    if messages and messages[0].get("role") == "system":
+        messages[0] = system_message
+    else:
+        messages.insert(0, system_message)
+
+
+def _record_model_interaction(
+    command_context: CliCommandContext,
+    model: str,
+    prompt_version: str,
+    feature_config: FeatureConfig,
+    request_messages: list[dict[str, Any]],
+    response_text: str,
+    prepared_context: Any,
+    latency_ms: float,
+    status: str,
+    error_category: str | None = None,
+) -> int:
+    """Record safe request metadata without persisting user or model content."""
+    if command_context.monitoring_store is None:
+        return 0
+    try:
+        return command_context.monitoring_store.record_model_interaction(
+            model=model,
+            features=feature_config,
+            prompt_version=prompt_version,
+            status=status,
+            latency_ms=latency_ms,
+            input_tokens=estimate_tokens(request_messages),
+            output_tokens=estimate_tokens(response_text) if status == "success" else None,
+            rag_chunk_count=len(prepared_context.results) if prepared_context is not None else 0,
+            error_category=error_category,
+        )
+    except (OSError, sqlite3.Error) as error:
+        # Metrics are optional: an unavailable local database must not interrupt chat.
+        logger.warning("monitoring.write_failed error_type=%s", type(error).__name__)
+        return 0
