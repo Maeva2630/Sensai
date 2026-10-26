@@ -10,6 +10,10 @@ class ToolResult:
     is_error: bool = False
 
 
+class ToolError(Exception):
+    """A tool failure whose message is safe and useful to show to the model and the user."""
+
+
 class Tool(ABC):
     """A function the model can call.
 
@@ -19,6 +23,8 @@ class Tool(ABC):
     name: str = ""
     description: str = ""
     parameters: Dict[str, Any] = {"type": "object", "properties": {}}
+    # True for tools whose output comes from outside our code (MCP servers, the web).
+    untrusted: bool = False
 
     @abstractmethod
     def execute(self, arguments: Dict[str, Any]) -> str:
@@ -43,3 +49,12 @@ class Tool(ABC):
         override this method to avoid distracting the model on unrelated tasks.
         """
         return True
+
+    def claims_request(self, user_input: str) -> bool:
+        """Return whether the request is explicitly meant for this tool.
+
+        A claimed request is answered by the tool instead of document retrieval
+        when RAG mode is on. Tools without a precise routing rule never claim a
+        request, so offering them does not switch RAG off.
+        """
+        return False

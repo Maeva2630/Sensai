@@ -1,6 +1,11 @@
+import json
+import logging
 from typing import Any, Dict, List, Optional
 
-from tools.base import Tool, ToolResult
+from tools.base import Tool, ToolError, ToolResult
+from tools.safety import MAX_RESULT_CHARS, truncate_result
+
+logger = logging.getLogger(__name__)
 
 _JSON_TYPES = {
     "null": type(None),
@@ -24,6 +29,41 @@ def _check_type(name: str, value: Any, declared: Any) -> Optional[str]:
     if is_bool_as_number or not isinstance(value, expected):
         return f"argument '{name}' must be of type {' or '.join(n for n in names if isinstance(n, str))}"
     return None
+
+
+def _coerce_value(value: str, declared: Any) -> Any:
+    """Turn a string produced by the model into the JSON type the schema declares."""
+    names = declared if isinstance(declared, list) else [declared]
+    if "string" in names:
+        return value
+    if "boolean" in names and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        return value
+    wanted = tuple(_JSON_TYPES[n] for n in names if isinstance(n, str) and n in _JSON_TYPES and n != "boolean")
+    if wanted and isinstance(parsed, wanted) and not isinstance(parsed, bool):
+        return parsed
+    return value
+
+
+def coerce_arguments(schema: Dict[str, Any], arguments: Any) -> Any:
+    """Fix arguments that small models send as strings ("10", "[1, 2]") instead of numbers or arrays.
+
+    Only string values for properties declared with a non-string type are converted, and
+    only when the string is valid JSON of that type. Anything else is left for validation.
+    """
+    if not isinstance(arguments, dict):
+        return arguments
+    properties = schema.get("properties", {})
+    coerced = {}
+    for name, value in arguments.items():
+        spec = properties.get(name)
+        if isinstance(value, str) and isinstance(spec, dict) and "type" in spec:
+            value = _coerce_value(value, spec["type"])
+        coerced[name] = value
+    return coerced
 
 
 def validate_arguments(schema: Dict[str, Any], arguments: Any) -> Optional[str]:
@@ -55,8 +95,9 @@ def validate_arguments(schema: Dict[str, Any], arguments: Any) -> Optional[str]:
 class ToolRegistry:
     """Holds the available tools and executes them by name."""
 
-    def __init__(self):
+    def __init__(self, max_result_chars: int = MAX_RESULT_CHARS):
         self._tools: Dict[str, Tool] = {}
+        self._max_result_chars = max_result_chars
 
     def register(self, tool: Tool) -> None:
         if not tool.name:
@@ -78,20 +119,30 @@ class ToolRegistry:
             tools = (tool for tool in tools if tool.is_relevant_for(user_input))
         return [tool.to_ollama_tool() for tool in tools]
 
+    def claims_request(self, user_input: str) -> bool:
+        """Return whether any tool explicitly claims this request."""
+        return any(tool.claims_request(user_input) for tool in self._tools.values())
+
     def execute(self, name: str, arguments: Any) -> ToolResult:
         """Validate and run a tool. Never raises: failures come back as an error result."""
         tool = self.get(name)
         if tool is None:
-            return ToolResult(f"Unknown tool '{name}'", is_error=True)
+            available = ", ".join(sorted(self._tools)) or "none"
+            return ToolResult(f"Unknown tool '{name}'. Available tools: {available}", is_error=True)
 
+        arguments = coerce_arguments(tool.parameters, arguments)
         error = validate_arguments(tool.parameters, arguments)
         if error:
             return ToolResult(f"Invalid arguments for '{name}': {error}", is_error=True)
 
         try:
-            return ToolResult(str(tool.execute(arguments)))
+            return ToolResult(truncate_result(str(tool.execute(arguments)), self._max_result_chars))
+        except ToolError as e:
+            return ToolResult(truncate_result(f"Tool '{name}' failed: {e}", self._max_result_chars), is_error=True)
         except Exception as e:
-            return ToolResult(f"Tool '{name}' failed: {e}", is_error=True)
+            # Details go to the log; the model and the user only get the error type.
+            logger.exception("Tool '%s' raised an unexpected error", name)
+            return ToolResult(f"Tool '{name}' failed unexpectedly ({type(e).__name__}).", is_error=True)
 
 
 def format_tool_listing(tools: List[Tool]) -> str:

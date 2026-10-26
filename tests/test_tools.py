@@ -1,3 +1,4 @@
+import json
 import unittest
 import sys
 import os
@@ -123,9 +124,57 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_tool_exception_is_returned_not_raised(self):
         self.registry.register(BrokenTool())
-        result = self.registry.execute("broken", {})
+        with self.assertLogs("tools.registry", level="ERROR"):
+            result = self.registry.execute("broken", {})
         self.assertTrue(result.is_error)
-        self.assertIn("boom", result.content)
+        # The error type is reported, the internal message is only logged
+        self.assertIn("RuntimeError", result.content)
+        self.assertNotIn("boom", result.content)
+
+
+class StatsTool(Tool):
+    name = "stats"
+    description = "Mean of marks."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "marks": {"type": "array", "items": {"type": "number"}},
+            "minutes": {"type": "number"},
+            "count": {"type": "integer"},
+            "flag": {"type": "boolean"},
+            "label": {"type": "string"},
+        },
+    }
+
+    def execute(self, arguments):
+        return json.dumps(arguments, sort_keys=True)
+
+
+class TestArgumentCoercion(unittest.TestCase):
+    """Small models often send numbers and lists as strings."""
+
+    def setUp(self):
+        self.registry = ToolRegistry()
+        self.registry.register(StatsTool())
+
+    def run_tool(self, arguments):
+        return self.registry.execute("stats", arguments)
+
+    def test_string_array_and_numbers_are_converted(self):
+        result = self.run_tool({"marks": "[12, 15, 9]", "minutes": "10", "count": "3"})
+        self.assertFalse(result.is_error)
+        self.assertEqual(json.loads(result.content), {"marks": [12, 15, 9], "minutes": 10, "count": 3})
+
+    def test_string_boolean_is_converted(self):
+        self.assertEqual(json.loads(self.run_tool({"flag": "true"}).content), {"flag": True})
+
+    def test_string_properties_are_left_alone(self):
+        self.assertEqual(json.loads(self.run_tool({"label": "10"}).content), {"label": "10"})
+
+    def test_values_that_do_not_match_the_type_still_fail_validation(self):
+        for arguments in [{"marks": "not a list"}, {"minutes": "ten"}, {"count": "2.5"}, {"marks": "5"}]:
+            with self.subTest(arguments=arguments):
+                self.assertTrue(self.run_tool(arguments).is_error)
 
 
 class TestGetTimeTool(unittest.TestCase):
@@ -136,6 +185,30 @@ class TestGetTimeTool(unittest.TestCase):
         result = registry.execute("get_time", {})
         self.assertFalse(result.is_error)
         self.assertRegex(result.content, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+
+    def test_time_tool_claims_explicit_time_requests(self):
+        tool = GetTimeTool()
+        self.assertTrue(tool.claims_request("Quelle heure est-il ?"))
+        self.assertTrue(tool.claims_request("What is the current time?"))
+
+    def test_time_tool_ignores_time_complexity_questions(self):
+        tool = GetTimeTool()
+        self.assertFalse(tool.is_relevant_for("What is the time complexity of this function?"))
+        self.assertFalse(tool.claims_request("What is the time complexity of this function?"))
+
+
+class TestClaimsRequest(unittest.TestCase):
+
+    def test_tool_without_routing_rule_never_claims_a_request(self):
+        self.assertFalse(AddTool().claims_request("anything"))
+
+    def test_registry_claims_a_request_only_when_a_tool_claims_it(self):
+        registry = ToolRegistry()
+        registry.register(AddTool())
+        self.assertFalse(registry.claims_request("Quelle heure est-il ?"))
+        registry.register(GetTimeTool())
+        self.assertTrue(registry.claims_request("Quelle heure est-il ?"))
+        self.assertFalse(registry.claims_request("Summarize my course"))
 
 
 if __name__ == "__main__":

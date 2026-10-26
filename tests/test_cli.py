@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
+from mcp.manager import MCPManager
 from config import AppConfig, FeatureConfig, PersonaConfig, PersonasConfig
 from cli.commands import GLOBAL_COMMANDS
 from cli.commands.rag import (
@@ -21,6 +22,7 @@ from cli.session import CliCommandContext, CliSession, CommandDefinition
 from tools.base import Tool
 # pyrefly: ignore [missing-import]
 from tools.registry import ToolRegistry
+from tools.time_tool import GetTimeTool
 # pyrefly: ignore [missing-import]
 from utilities.ollama_client import (
     OllamaConnectionError,
@@ -29,6 +31,13 @@ from utilities.ollama_client import (
 from rag.context import ArchiveIndexingResult, IndexingResult, PreparedContext
 from rag.ingestion import ArchiveEntryFailure, ArchiveIngestionResult, DocumentIngestionError, IngestedDocument
 from rag.storage import SearchResult
+
+
+def setUpModule():
+    # The CLI would start the servers declared in the repository's mcp_servers.json.
+    patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
 
 
 class TestCLIPromptInjection(unittest.TestCase):
@@ -721,6 +730,67 @@ class TestCLIRAGIntegration(unittest.TestCase):
         context_provider.prepare.assert_not_called()
         offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
         self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["get_time"])
+
+    def run_rag_cli(self, mock_client_cls, user_input, registry):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.stream_message.return_value = [b'{"message": {"content": "Answer"}}']
+        context_provider = MagicMock()
+        context_provider.prepare.return_value = PreparedContext("RAG source context", [])
+
+        with patch("builtins.input", side_effect=["/rag on", user_input, "exit"]), patch(
+            "sys.stdout", io.StringIO()
+        ):
+            cli(
+                dependencies=CliDependencies(
+                    registry=registry,
+                    rag_context_provider=context_provider,
+                    rag_indexer=MagicMock(),
+                ),
+            )
+        return mock_client, context_provider
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_rag_still_runs_when_a_tool_without_routing_rule_is_offered(self, mock_client_cls):
+        registry = ToolRegistry()
+        registry.register(AddTool())
+
+        mock_client, context_provider = self.run_rag_cli(mock_client_cls, "What does my course say?", registry)
+
+        context_provider.prepare.assert_called_once_with("What does my course say?")
+        sent_messages = mock_client.stream_message.call_args.args[0]
+        self.assertTrue(sent_messages[1]["content"].startswith("RAG source context"))
+        self.assertIn("Tools are available", sent_messages[1]["content"])
+        offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
+        self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["add"])
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_tool_note_is_not_added_when_no_tool_is_offered(self, mock_client_cls):
+        mock_client, _ = self.run_rag_cli(mock_client_cls, "What does my course say?", ToolRegistry())
+
+        sent_messages = mock_client.stream_message.call_args.args[0]
+        self.assertEqual(sent_messages[1]["content"], "RAG source context")
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_claimed_request_skips_rag_even_with_a_default_tool(self, mock_client_cls):
+        registry = ToolRegistry()
+        registry.register(AddTool())
+        registry.register(GetTimeTool())
+
+        mock_client, context_provider = self.run_rag_cli(mock_client_cls, "Quelle heure est-il ?", registry)
+
+        context_provider.prepare.assert_not_called()
+        offered_tools = mock_client.stream_message.call_args.kwargs["tools"]
+        self.assertEqual([tool["function"]["name"] for tool in offered_tools], ["add", "get_time"])
+
+    @patch("cli.cli.OllamaHTTPClient")
+    def test_non_matching_request_with_time_tool_still_uses_rag(self, mock_client_cls):
+        registry = ToolRegistry()
+        registry.register(GetTimeTool())
+
+        _, context_provider = self.run_rag_cli(mock_client_cls, "What is the time complexity of quicksort?", registry)
+
+        context_provider.prepare.assert_called_once()
 
     @patch("cli.cli.OllamaHTTPClient")
     def test_cli_displays_sources_used_for_a_rag_answer(self, mock_client_cls):
