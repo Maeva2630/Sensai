@@ -15,6 +15,7 @@ from rag.context import RAGContextProvider, RAGIndexer, format_source_attributio
 from rag.embeddings import EmbeddingError
 from mcp.manager import MCPManager
 from rag.storage import VectorStoreError
+from tools.permissions import load_permissions
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -153,6 +154,9 @@ def cli(
     for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
         print(f"Warning: {warning}")
     atexit.register(mcp_manager.close)
+    permission_checker, permission_warnings = load_permissions()
+    for warning in permission_warnings:
+        print(f"Warning: {warning}")
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -168,6 +172,7 @@ def cli(
         registry,
         runtime.chat_client,
         runtime.rag_context_provider,
+        permission_checker,
     )
 
     while True:

@@ -55,3 +55,4 @@ class CliCommandContext:
     registry: ToolRegistry | None = None
     chat_client: Any = None
     rag_context_provider: Any = None
+    permission_checker: Any = None

@@ -32,6 +32,18 @@ def _dispatch_tools(
     print(format_tool_listing(tools))
 
 
+def _dispatch_permissions(
+    _user_input: str,
+    _session: CliSession,
+    context: CliCommandContext,
+) -> None:
+    """Show which directories the agent may read or write."""
+    lines = context.permission_checker.describe() if context.permission_checker is not None else []
+    print("File access rules:" if lines else "No file access is allowed.")
+    for line in lines:
+        print(f"  {line}")
+
+
 def _parse_quiz_arguments(user_input: str) -> tuple[int, str] | None:
     """Return (question count, topic) from `/quiz [--questions N] <topic>`, or None if invalid."""
     try:
@@ -99,6 +111,13 @@ TOOL_COMMANDS: tuple[CommandDefinition, ...] = (
         description="List the tools available to the model.",
         feature="Tools",
         handler=_dispatch_tools,
+    ),
+    CommandDefinition(
+        name="/permissions",
+        usage="/permissions",
+        description="Show the directories the agent may read or write.",
+        feature="Tools",
+        handler=_dispatch_permissions,
     ),
     CommandDefinition(
         name="/quiz",
