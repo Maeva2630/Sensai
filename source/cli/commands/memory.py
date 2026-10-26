@@ -3,6 +3,7 @@
 from cli.error_handling import report_cli_error
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 from observability.app_logging import get_logger
+from memory.compression import compress_history, is_summary_message
 
 
 logger = get_logger("commands.memory")
@@ -44,7 +45,7 @@ def _dispatch_load(
         if context.messages and context.messages[0].get("role") == "system"
         else []
     )
-    history = [dict(msg) for msg in loaded if msg.get("role") != "system"]
+    history = [dict(msg) for msg in loaded if msg.get("role") != "system" or is_summary_message(msg)]
     context.messages[:] = [*system_prefix, *history]
     session.last_request_messages = None
     session.last_rag_context = None
@@ -77,6 +78,42 @@ def _dispatch_tokens(
     )
 
 
+def _dispatch_compress(
+    user_input: str,
+    session: CliSession,
+    context: CliCommandContext,
+) -> None:
+    """Condense older conversation history into a factual summary block."""
+    if not context.feature_config.memory_enabled:
+        print("Memory is disabled in config.json.")
+        return
+    if user_input.strip() != "/compress":
+        print("Usage: /compress")
+        return
+    if context.chat_client is None:
+        print("Error: Model client is unavailable for compression.")
+        return
+
+    updated_messages, result = compress_history(context.messages, context.chat_client)
+    if not result.compressed:
+        print(f"Compression skipped: {result.reason}")
+        return
+
+    context.messages[:] = updated_messages
+    persisted_messages = [
+        dict(msg)
+        for msg in updated_messages
+        if msg.get("role") != "system" or is_summary_message(msg)
+    ]
+    context.conversation_session.messages[:] = persisted_messages
+    session.last_request_messages = None
+    session.last_rag_context = None
+
+    print("Context compressed successfully:")
+    print(f"- Messages reduced: {result.messages_before} -> {result.messages_after}")
+    print(f"- Summary: {result.summary}")
+
+
 MEMORY_COMMANDS: tuple[CommandDefinition, ...] = (
     CommandDefinition(
         name="/save",
@@ -98,5 +135,12 @@ MEMORY_COMMANDS: tuple[CommandDefinition, ...] = (
         description="Display per-turn, context window, and cumulative session token usage.",
         feature="Memory",
         handler=_dispatch_tokens,
+    ),
+    CommandDefinition(
+        name="/compress",
+        usage="/compress",
+        description="Condense older conversation turns into a compact summary block.",
+        feature="Memory",
+        handler=_dispatch_compress,
     ),
 )
