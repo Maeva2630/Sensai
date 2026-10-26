@@ -15,7 +15,8 @@ from rag.context import RAGContextProvider, RAGIndexer, format_source_attributio
 from rag.embeddings import EmbeddingError
 from mcp.manager import MCPManager
 from rag.storage import VectorStoreError
-from tools.permissions import load_permissions
+from tools.filesystem import filesystem_tools
+from tools.permissions import PermissionChecker, load_permissions
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -46,10 +47,13 @@ class CliDependencies:
     rag_context_provider: RAGContextProvider | None = None
 
 
-def default_registry(enabled: bool = True) -> ToolRegistry:
+def default_registry(enabled: bool = True, permission_checker: PermissionChecker | None = None) -> ToolRegistry:
     registry = ToolRegistry()
     if enabled:
         registry.register(GetTimeTool())
+        if permission_checker is not None:
+            for tool in filesystem_tools(permission_checker):
+                registry.register(tool)
     return registry
 
 
@@ -145,18 +149,18 @@ def cli(
     ]
     session = CliSession(show_sources=feature_config.source_display_enabled)
 
+    permission_checker, permission_warnings = load_permissions()
+    for warning in permission_warnings:
+        print(f"Warning: {warning}")
     registry = (
         dependencies.registry
         if dependencies.registry is not None
-        else default_registry(feature_config.tools_enabled)
+        else default_registry(feature_config.tools_enabled, permission_checker)
     )
     mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file()
     for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
         print(f"Warning: {warning}")
     atexit.register(mcp_manager.close)
-    permission_checker, permission_warnings = load_permissions()
-    for warning in permission_warnings:
-        print(f"Warning: {warning}")
     runtime = create_model_runtime(
         model_config,
         rag_config,
