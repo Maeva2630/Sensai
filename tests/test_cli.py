@@ -22,6 +22,7 @@ from cli.session import CliCommandContext, CliSession, CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
 from memory.artifact_manager import ArtifactManager
+from memory.session_manager import SessionManager
 # pyrefly: ignore [missing-import]
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
@@ -1635,6 +1636,56 @@ class TestCLIArtifactCommands(unittest.TestCase):
 
         self.handler("/artifact reset", self.session, self.context)
         self.assertFalse(self.artifact_manager.has_artifact())
+
+
+class TestArtifactSessionLifecycle(unittest.TestCase):
+    """Tests for saving and restoring artifacts across session /save and /load."""
+
+    def setUp(self):
+        import tempfile
+        self.temp_dir = tempfile.mkdtemp()
+        self.session_id = "lifecycle_test_session"
+        self.conversation_session = SessionManager(session_id=self.session_id, storage_dir=self.temp_dir)
+        self.artifact_manager = ArtifactManager(session_id=self.session_id, storage_dir=self.temp_dir)
+        self.context = CliCommandContext(
+            feature_config=FeatureConfig(),
+            rag_indexer=MagicMock(),
+            conversation_session=self.conversation_session,
+            artifact_manager=self.artifact_manager,
+            messages=[],
+        )
+        self.session = CliSession()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_save_and_load_session_with_artifact(self):
+        from cli.commands.memory import _dispatch_save, _dispatch_load
+
+        # 1. Initialize artifact and add content
+        self.artifact_manager.init_document("Living Spec")
+        self.artifact_manager.update_section("Architecture", "Clean Architecture pattern.")
+
+        # 2. Add message and save session
+        self.conversation_session.add_message("user", "Hello")
+        _dispatch_save("/save", self.session, self.context)
+
+        # Verify artifact file exists on disk
+        artifact_file = os.path.join(self.temp_dir, f"{self.session_id}_artifact.md")
+        self.assertTrue(os.path.exists(artifact_file))
+
+        # 3. Reset in-memory artifact to simulate new session
+        self.artifact_manager.reset()
+        self.assertFalse(self.artifact_manager.has_artifact())
+
+        # 4. Load session back
+        _dispatch_load(f"/load {self.session_id}", self.session, self.context)
+
+        # 5. Verify artifact is restored
+        self.assertTrue(self.artifact_manager.has_artifact())
+        self.assertEqual(self.artifact_manager.artifact.title, "Living Spec")
+        self.assertEqual(self.artifact_manager.artifact.sections.get("Architecture"), "Clean Architecture pattern.")
 
 
 if __name__ == "__main__":
