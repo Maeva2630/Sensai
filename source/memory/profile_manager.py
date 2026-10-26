@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from personas.teacher_assistant import TEACHER_ASSISTANT_BASE_PROMPT
+
 
 class ProfileManager:
     """Manage user profile information."""
@@ -31,7 +33,7 @@ class ProfileManager:
             json.dump(data, f, indent=2, ensure_ascii=False)
         self.data = data
 
-    def build_system_prompt(self, base_instructions: str = "You are a helpful assistant.") -> str:
+    def build_system_prompt(self, base_instructions: str = TEACHER_ASSISTANT_BASE_PROMPT) -> str:
         """Inject profile information as system instructions for LLM."""
         constraints_str = "\n".join(f"- {c}" for c in self.data.get("constraints", [])) or "None"
 

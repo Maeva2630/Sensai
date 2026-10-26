@@ -56,9 +56,13 @@ class TestConfigurationLoading(unittest.TestCase):
                 "max_context_characters": 4000,
                 "relevance_threshold": 0.35,
             },
+            "logging": {
+                "level": "DEBUG",
+                "file_path": "logs/test.log",
+            },
         }
         for section, values in (changes or {}).items():
-            data[section].update(values)
+            data.setdefault(section, {}).update(values)
         self.config_path.write_text(json.dumps(data), encoding="utf-8")
 
     def test_loads_a_complete_valid_configuration(self):
@@ -70,12 +74,25 @@ class TestConfigurationLoading(unittest.TestCase):
         self.assertEqual(configuration.model.context_window, 4096)
         self.assertTrue(configuration.features.rag_enabled)
         self.assertEqual(configuration.rag.top_k, 3)
+        self.assertEqual(configuration.logging.level, "DEBUG")
+        self.assertEqual(configuration.personas.active_persona, "teacher-assistant")
 
     def test_rejects_invalid_json(self):
         self.config_path.write_text("{ not valid JSON", encoding="utf-8")
 
         with self.assertRaisesRegex(ConfigurationError, "Invalid JSON"):
             load_config(self.config_path)
+
+    def test_uses_safe_logging_defaults_when_the_optional_section_is_absent(self):
+        self.write_config()
+        data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        del data["logging"]
+        self.config_path.write_text(json.dumps(data), encoding="utf-8")
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.logging.level, "INFO")
+        self.assertEqual(configuration.logging.file_path, "logs/sensai.log")
 
     def test_rejects_missing_required_section(self):
         self.write_config()
@@ -94,11 +111,96 @@ class TestConfigurationLoading(unittest.TestCase):
             ({"features": {"rag_enabled": "yes"}}, "rag_enabled"),
             ({"rag": {"relevance_threshold": -1.1}}, "relevance_threshold"),
             ({"rag": {"top_k": 0}}, "top_k"),
+            ({"logging": {"level": "TRACE"}}, "level"),
+            ({"personas": {"active_persona": "missing", "profiles": []}}, "profiles"),
         )
         for changes, expected_field in cases:
             with self.subTest(changes=changes):
                 self.write_config(changes)
                 with self.assertRaisesRegex(ConfigurationError, expected_field):
+                    load_config(self.config_path)
+
+    def test_loads_and_selects_a_configured_persona(self):
+        self.write_config(
+            {
+                "personas": {
+                    "active_persona": "math-assistant",
+                    "profiles": [
+                        {
+                            "identifier": "math-assistant",
+                            "display_name": "Mathematics assistant",
+                            "role": "Supports mathematics teachers",
+                            "tone": "Precise and practical",
+                            "system_prompt": "Support mathematics teachers.",
+                            "response_scope": "Lesson preparation and assessment.",
+                        },
+                        {
+                            "identifier": "history-assistant",
+                            "display_name": "History assistant",
+                            "role": "Supports history teachers",
+                            "tone": "Clear and contextual",
+                            "system_prompt": "Support history teachers.",
+                            "response_scope": "Lesson preparation and assessment.",
+                        },
+                    ],
+                }
+            }
+        )
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.personas.active.display_name, "Mathematics assistant")
+        self.assertEqual(configuration.personas.active.system_prompt, "Support mathematics teachers.")
+        self.assertIn("Role: Supports mathematics teachers", configuration.personas.active.system_instructions)
+
+    def test_loads_a_persona_prompt_from_a_file_relative_to_the_configuration(self):
+        prompts_directory = self.config_path.parent / "prompts"
+        prompts_directory.mkdir()
+        (prompts_directory / "teacher.txt").write_text("Prompt loaded from a file.", encoding="utf-8")
+        self.write_config(
+            {
+                "personas": {
+                    "active_persona": "teacher-assistant",
+                    "profiles": [
+                        {
+                            "identifier": "teacher-assistant",
+                            "display_name": "Teacher assistant",
+                            "role": "Supports teachers",
+                            "tone": "Practical",
+                            "prompt_file": "prompts/teacher.txt",
+                            "response_scope": "Teaching support.",
+                        }
+                    ],
+                }
+            }
+        )
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.personas.active.system_prompt, "Prompt loaded from a file.")
+
+    def test_rejects_personas_with_both_or_no_prompt_source(self):
+        for prompt_fields in ({}, {"system_prompt": "Inline", "prompt_file": "prompt.txt"}):
+            with self.subTest(prompt_fields=prompt_fields):
+                self.write_config(
+                    {
+                        "personas": {
+                            "active_persona": "teacher-assistant",
+                            "profiles": [
+                                {
+                                    "identifier": "teacher-assistant",
+                                    "display_name": "Teacher assistant",
+                                    "role": "Supports teachers",
+                                    "tone": "Practical",
+                                    "response_scope": "Teaching support.",
+                                    **prompt_fields,
+                                }
+                            ],
+                        }
+                    }
+                )
+
+                with self.assertRaisesRegex(ConfigurationError, "exactly one"):
                     load_config(self.config_path)
 
 
@@ -114,17 +216,18 @@ class TestApplicationStartup(unittest.TestCase):
         self.assertIn("Configuration error: invalid value", output.getvalue())
 
     def test_main_reports_corrupted_rag_database_without_a_traceback(self):
-        with patch("main.load_config", return_value=AppConfig()), patch(
+        with patch("main.load_config", return_value=AppConfig()), patch("main.configure_logging"), patch(
             "main.cli", side_effect=VectorStoreError("database is corrupted")
         ), patch("sys.stdout", new_callable=io.StringIO) as output:
             with patch("sys.argv", ["main.py"]):
                 main()
 
-        self.assertIn("RAG startup error: database is corrupted", output.getvalue())
+        self.assertIn("RAG error: the local knowledge base is unavailable.", output.getvalue())
+        self.assertNotIn("database is corrupted", output.getvalue())
 
-    def test_main_warns_when_memory_is_enabled_but_still_starts(self):
+    def test_main_starts_cleanly_when_memory_is_enabled(self):
         configuration = AppConfig(features=FeatureConfig(memory_enabled=True))
-        with patch("main.load_config", return_value=configuration), patch(
+        with patch("main.load_config", return_value=configuration), patch("main.configure_logging"), patch(
             "main.cli"
         ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output:
             with patch("sys.argv", ["main.py"]):
@@ -135,6 +238,6 @@ class TestApplicationStartup(unittest.TestCase):
             profile_path="profile.json",
             app_config=configuration,
         )
-        self.assertIn("Memory is enabled", output.getvalue())
+        self.assertEqual(output.getvalue(), "")
 if __name__ == "__main__":
     unittest.main()
