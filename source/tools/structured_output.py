@@ -150,19 +150,23 @@ def generate_structured(
     raise StructuredOutputError(f"The model did not produce a valid answer after {max(1, max_attempts)} attempts: {last_error}")
 
 
-def check_quiz(quiz: Dict[str, Any]) -> Optional[str]:
-    """Checks the JSON schema cannot express: every answer must point to a real choice."""
+def check_quiz(quiz: Dict[str, Any], expected_count: Optional[int] = None) -> Optional[str]:
+    """Checks the JSON schema cannot express: the number of questions, and that every answer points to a real choice."""
+    if expected_count is not None and len(quiz["questions"]) != expected_count:
+        return f"the quiz must have exactly {expected_count} questions, not {len(quiz['questions'])}"
     for number, question in enumerate(quiz["questions"], start=1):
         if question["answer_index"] >= len(question["choices"]):
             return f"question {number}: answer_index {question['answer_index']} is not one of its {len(question['choices'])} choices"
     return None
 
 
-def quiz_messages(topic: str, question_count: int, excerpts: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Messages asking for a quiz, grounded in course excerpts when they are given."""
+def quiz_messages(topic: str, question_count: int, excerpts: Optional[str] = None,
+                  language: str = "English") -> List[Dict[str, Any]]:
+    """Messages asking for a quiz in `language`, grounded in course excerpts when they are given."""
     system = (
         "You are a teaching assistant who writes multiple-choice quizzes. "
-        "Write in the language of the topic. Each question has one correct choice; "
+        f"Write the whole quiz (title, questions, choices and explanations) in {language}. "
+        "Each question has one correct choice; "
         "answer_index is the 0-based position of the correct choice in choices."
     )
     if excerpts:
@@ -176,14 +180,16 @@ def quiz_messages(topic: str, question_count: int, excerpts: Optional[str] = Non
     ]
 
 
-def format_quiz(quiz: Dict[str, Any]) -> str:
-    """Readable quiz followed by its answer key."""
+def format_quiz(quiz: Dict[str, Any], answers: bool = True) -> str:
+    """Readable quiz, followed by its answer key unless `answers` is false."""
     lines = [quiz["title"], ""]
     for number, question in enumerate(quiz["questions"], start=1):
         lines.append(f"{number}. {question['question']}")
         for letter, choice in zip("ABCDEF", question["choices"]):
             lines.append(f"   {letter}) {choice}")
         lines.append("")
+    if not answers:
+        return "\n".join(lines).rstrip("\n")
     lines.append("Answer key:")
     for number, question in enumerate(quiz["questions"], start=1):
         letter = "ABCDEF"[question["answer_index"]]
