@@ -163,6 +163,10 @@ class TestQuizHelpers(unittest.TestCase):
         bad["questions"][1]["answer_index"] = 3
         self.assertIn("question 2", check_quiz(bad))
 
+    def test_check_quiz_enforces_the_requested_number_of_questions(self):
+        self.assertIsNone(check_quiz(good_quiz(), 2))
+        self.assertIn("exactly 3 questions, not 2", check_quiz(good_quiz(), 3))
+
     def test_format_quiz_shows_questions_and_answer_key(self):
         text = format_quiz(good_quiz())
         self.assertIn("1. What is a^2 + b^2?", text)
@@ -178,6 +182,8 @@ class TestQuizHelpers(unittest.TestCase):
         self.assertIn("Course excerpts", grounded[0]["content"])
         self.assertIn("The theorem says", grounded[0]["content"])
         self.assertIn("3 questions about: Pythagoras", plain[1]["content"])
+        self.assertIn("in English", plain[0]["content"])
+        self.assertIn("in Français", quiz_messages("Pythagoras", 3, language="Français")[0]["content"])
 
 
 class TestStructuredOutputCommands(unittest.TestCase):
@@ -216,7 +222,7 @@ class TestStructuredOutputCommands(unittest.TestCase):
             "ctx", [SearchResult("d", "c1", "cours.md", 0, "Le carre de l'hypotenuse...", 0.9)]
         )
 
-        output, client = self.run_cli(["/rag on", "/quiz Pythagoras"], [json.dumps(good_quiz())], provider)
+        output, client = self.run_cli(["/rag on", "/quiz --questions 2 Pythagoras"], [json.dumps(good_quiz())], provider)
 
         provider.prepare.assert_called_once_with("Pythagoras")
         system_message = client.complete_message.call_args.args[0][0]["content"]
