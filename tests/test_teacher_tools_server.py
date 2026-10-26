@@ -260,8 +260,8 @@ class TestDefaultMcpConfig(unittest.TestCase):
     def test_repository_config_declares_the_teacher_server(self):
         servers, warnings = load_mcp_config(os.path.join(ROOT, "mcp_servers.json"))
         self.assertEqual(warnings, [])
-        self.assertEqual([server.name for server in servers], ["teacher"])
-        self.assertTrue(os.path.exists(os.path.join(ROOT, servers[0].args[0])))
+        teacher = next(server for server in servers if server.name == "teacher")
+        self.assertTrue(os.path.exists(os.path.join(ROOT, teacher.args[0])))
 
 
 if __name__ == "__main__":

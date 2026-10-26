@@ -4,6 +4,11 @@
       "command": "python3",
       "args": ["source/mcp/servers/teacher_tools.py"],
       "timeout": 10
+    },
+    "web": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "timeout": 60
     }
   }
 }
