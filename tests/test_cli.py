@@ -1018,6 +1018,90 @@ class TestCLICommandDispatch(unittest.TestCase):
         self.assertIn("- Session total: 325 tokens (250 prompt, 75 completion)", output)
         self.assertIn("Usage: /tokens", output)
 
+    @patch("builtins.input", side_effect=["/load valid-id", "Follow-up question", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_slash_load_restores_conversation_context_for_next_turn(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = [
+            {"role": "user", "content": "Previous question"},
+            {"role": "assistant", "content": "Previous answer"},
+        ]
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.return_value = [
+            b'{"message": {"content": "Follow-up answer"}}'
+        ]
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        self.assertIn("Session valid-id loaded.", captured.getvalue())
+        sent_messages = mock_client.stream_message.call_args.args[0]
+        self.assertEqual(sent_messages[0]["role"], "system")
+        self.assertEqual(
+            sent_messages[1:],
+            [
+                {"role": "user", "content": "Previous question"},
+                {"role": "assistant", "content": "Previous answer"},
+                {"role": "user", "content": "Follow-up question"},
+                {"role": "assistant", "content": "Follow-up answer"},
+            ],
+        )
+
+    @patch("builtins.input", side_effect=["/save", "/load some-id", "/tokens", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_memory_commands_are_blocked_when_memory_is_disabled(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client_cls.return_value = MagicMock()
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli(app_config=AppConfig(features=FeatureConfig(memory_enabled=False)))
+
+        self.assertEqual(captured.getvalue().count("Memory is disabled in config.json."), 3)
+        mock_session.save.assert_not_called()
+        mock_session.load.assert_not_called()
+
+    @patch("builtins.input", side_effect=["First question", "Second question", "/tokens", "/tokens extra", "exit"])
+    @patch("cli.cli.OllamaHTTPClient")
+    @patch("cli.cli.SessionManager")
+    def test_tokens_command_tracks_per_turn_and_cumulative_usage(
+        self, mock_sm_cls, mock_client_cls, mock_input
+    ):
+        mock_session = MagicMock()
+        mock_session.load.return_value = None
+        mock_sm_cls.return_value = mock_session
+        mock_client = MagicMock()
+        mock_client.stream_message.side_effect = [
+            [
+                b'{"message": {"content": "First answer"}, "done": true, "prompt_eval_count": 100, "eval_count": 25}'
+            ],
+            [
+                b'{"message": {"content": "Second answer"}, "done": true, "prompt_eval_count": 150, "eval_count": 50}'
+            ],
+        ]
+        mock_client_cls.return_value = mock_client
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            cli()
+
+        output = captured.getvalue()
+        self.assertIn("- Last turn: 150 prompt + 50 completion = 200 tokens", output)
+        self.assertIn("- Context window: 200 / 4096 tokens (4.9%)", output)
+        self.assertIn("- Session total: 325 tokens (250 prompt, 75 completion)", output)
+        self.assertIn("Usage: /tokens", output)
+
     @patch("builtins.input", side_effect=["", "   ", "exit"])
     @patch("cli.cli.OllamaHTTPClient")
     @patch("cli.cli.SessionManager")
