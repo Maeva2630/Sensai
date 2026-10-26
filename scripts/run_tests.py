@@ -18,6 +18,7 @@ TEST_DIRECTORY = PROJECT_ROOT / "tests"
 FEATURES = {
     "test_chunking": "Chunking",
     "test_cli": "CLI",
+    "test_compression": "Semantic compression",
     "test_context": "RAG context",
     "test_embeddings": "Embeddings",
     "test_functional_prompts": "Functional prompts",
