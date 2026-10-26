@@ -32,7 +32,7 @@ class ModelConfig:
 class FeatureConfig:
     rag_enabled: bool = True
     tools_enabled: bool = True
-    memory_enabled: bool = False
+    memory_enabled: bool = True
     source_display_enabled: bool = True
 
 

@@ -34,7 +34,7 @@ SensAI reads [`config.json`](config.json) when the application starts. This file
   "features": {
     "rag_enabled": true,
     "tools_enabled": true,
-    "memory_enabled": false
+    "memory_enabled": true
   }
 }
 ```
@@ -42,7 +42,7 @@ SensAI reads [`config.json`](config.json) when the application starts. This file
 - `temperature` controls how varied the chat model responses are. A low value such as `0.2` is recommended for document-grounded answers because it is more stable and factual. Higher values can make conversation more creative but also less predictable.
 - `context_window` is sent to Ollama as `num_ctx`. A larger value lets the model consider more conversation and RAG context, but uses more RAM/VRAM and can make generation slower. `4096` is a reasonable local default for `llama3.2`; increase it only if your machine and model support it.
 - `rag_enabled` and `tools_enabled` determine whether those features are available. RAG starts off for a normal chat experience, then can be enabled with `/rag on` when `rag_enabled` is `true`. `source_display_enabled` controls whether verified sources are shown by default.
-- `memory_enabled` is a reserved setting. SensAI does not yet implement persistent conversation memory, so enabling it only displays a startup notice and does not store conversations.
+- `memory_enabled` controls whether conversation session persistence (`/save`, `/load`, automatic save on exit), token usage inspection (`/tokens`), context budget threshold warnings (80% alert), and sliding-window semantic compression (`/compress`) are active.
 - The `rag` section controls retrieved chunk count, context budget, similarity threshold, and other implemented RAG settings.
 
 Invalid values are reported at startup instead of being silently ignored.
@@ -166,6 +166,64 @@ Type the following while SensAI is running to display its available commands, gr
 ```
 
 This help output is generated from the command registry, so a command registered by RAG, Tools, or Memory can provide its own syntax and description in one place.
+
+### Session persistence, user profile, and token usage
+
+When `memory_enabled` is `true` in `config.json`, SensAI persists conversations as JSON files under `sessions/<session_id>.json` automatically on exit (`exit`, `quit`, `Ctrl+C`, `Ctrl+D`) or on demand with:
+
+```text
+/save
+```
+
+Resume a previous session at startup with `--session`, or load a saved session mid-conversation with `/load` (which replaces the conversation history while keeping the active persona and user profile system prompt):
+
+```bash
+python3 source/main.py --session <session_id>
+```
+
+```text
+/load <session_id>
+```
+
+SensAI also loads persistent user preferences from `profile.json` (or a custom path via `--profile <path>`) and injects them into the initial system prompt of every session:
+
+```json
+{
+  "user_name": "User",
+  "preferred_language": "English",
+  "domain_expertise": "General",
+  "constraints": []
+}
+```
+
+To inspect token consumption for the latest turn, current context window occupancy against `context_window`, and cumulative session usage, run:
+
+```text
+/tokens
+```
+
+When active context usage (prompt tokens + completion tokens) reaches or exceeds **80%** of the configured `context_window` (e.g. 4096 tokens), an automatic warning notification is printed at the end of the turn:
+
+```text
+Warning: Context token usage is at 80.6% (3300/4096 tokens).
+```
+
+### Semantic context compression
+
+As conversations grow longer, older exchanges consume a substantial portion of the context budget. SensAI provides a sliding-window semantic summarization pass (`[M2]`) that condenses older turns into a compact summary system message while preserving the base system instructions (persona + profile) and the most recent dialogue turns:
+
+- **Manual compression**: run `/compress` at any time:
+  ```text
+  /compress
+  ```
+  Example output:
+  ```text
+  Context compressed successfully:
+  - Messages reduced: 12 -> 6
+  - Summary: Discussed lesson objectives, exam question topics, and grading rubric.
+  ```
+
+- **Automatic compression**: when context occupancy approaches the limit (>= 85% of `context_window`), SensAI automatically triggers a sliding-window summarization pass to avoid context window exhaustion.
 
 ### Ingest a document for RAG
 

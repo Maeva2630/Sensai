@@ -225,7 +225,7 @@ class TestApplicationStartup(unittest.TestCase):
         self.assertIn("RAG error: the local knowledge base is unavailable.", output.getvalue())
         self.assertNotIn("database is corrupted", output.getvalue())
 
-    def test_main_warns_when_memory_is_enabled_but_still_starts(self):
+    def test_main_starts_cleanly_when_memory_is_enabled(self):
         configuration = AppConfig(features=FeatureConfig(memory_enabled=True))
         with patch("main.load_config", return_value=configuration), patch("main.configure_logging"), patch(
             "main.cli"
@@ -238,6 +238,6 @@ class TestApplicationStartup(unittest.TestCase):
             profile_path="profile.json",
             app_config=configuration,
         )
-        self.assertIn("Memory is enabled", output.getvalue())
+        self.assertEqual(output.getvalue(), "")
 if __name__ == "__main__":
     unittest.main()

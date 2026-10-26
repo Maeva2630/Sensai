@@ -14,6 +14,11 @@ from cli.session import CliCommandContext, CliSession, CommandDefinition
 from cli.terminal import assistant_prefix, configure_line_editing, read_user_input
 from cli.tool_calls import run_tool_calls
 from config import AppConfig, FeatureConfig
+from memory.compression import (
+    DEFAULT_AUTO_COMPRESSION_THRESHOLD,
+    compress_history,
+    is_summary_message,
+)
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from observability.app_logging import get_logger
@@ -75,6 +80,7 @@ def stream_response(
     client: OllamaHTTPClient,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    token_counts: dict[str, int] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Stream one model response and return its text and requested tool calls."""
     full_response = ""
@@ -107,6 +113,13 @@ def stream_response(
         if not isinstance(tool_calls, list):
             raise OllamaResponseError("Ollama returned invalid tool calls in a streaming response.")
         raw_tool_calls.extend(tool_calls)
+        if token_counts is not None:
+            prompt_eval_count = payload.get("prompt_eval_count")
+            if isinstance(prompt_eval_count, int) and not isinstance(prompt_eval_count, bool) and prompt_eval_count >= 0:
+                token_counts["prompt_tokens"] = prompt_eval_count
+            eval_count = payload.get("eval_count")
+            if isinstance(eval_count, int) and not isinstance(eval_count, bool) and eval_count >= 0:
+                token_counts["completion_tokens"] = eval_count
 
     if printed_prefix:
         print()
@@ -149,6 +162,7 @@ def cli(
     session = CliSession(
         show_sources=feature_config.source_display_enabled,
         active_persona_id=app_config.personas.active.identifier,
+        context_window=model_config.context_window,
     )
 
     registry = (
@@ -177,6 +191,7 @@ def cli(
         app_config.personas,
         profile_manager,
         messages,
+        chat_client=runtime.chat_client,
     )
     line_editing_enabled = configure_line_editing()
 
@@ -231,11 +246,13 @@ def cli(
                     len(tools),
                 )
                 started_at = perf_counter()
+                token_counts: dict[str, int] = {}
                 try:
                     full_response, raw_tool_calls = stream_response(
                         runtime.chat_client,
                         request_messages,
                         tools,
+                        token_counts=token_counts,
                     )
                 except OllamaError as error:
                     _record_model_interaction(
@@ -251,6 +268,9 @@ def cli(
                         type(error).__name__,
                     )
                     raise
+                prompt_tokens = token_counts.get("prompt_tokens", estimate_tokens(request_messages))
+                completion_tokens = token_counts.get("completion_tokens", estimate_tokens(full_response))
+                session.record_turn_tokens(prompt_tokens, completion_tokens)
                 interaction_id = _record_model_interaction(
                     command_context,
                     model_config.chat_model,
@@ -287,10 +307,33 @@ def cli(
             conversation_session.add_message("user", user_input)
             conversation_session.add_message("assistant", full_response)
 
+            if feature_config.memory_enabled:
+                warning = session.get_budget_warning()
+                if warning:
+                    print(f"\n{warning}")
+                if session.context_usage_ratio >= DEFAULT_AUTO_COMPRESSION_THRESHOLD:
+                    compressed_msgs, result = compress_history(
+                        messages,
+                        runtime.chat_client,
+                    )
+                    if result.compressed:
+                        messages[:] = compressed_msgs
+                        persisted_messages = [
+                            dict(msg)
+                            for msg in compressed_msgs
+                            if msg.get("role") != "system" or is_summary_message(msg)
+                        ]
+                        conversation_session.messages[:] = persisted_messages
+                        print(
+                            f"Auto-compression triggered: condensed older turns "
+                            f"({result.messages_before} -> {result.messages_after} messages)."
+                        )
+
 
         except (KeyboardInterrupt, EOFError):
             logger.info("cli.interrupted")
-            conversation_session.save()
+            if feature_config.memory_enabled:
+                conversation_session.save()
             print("Exiting.")
             sys.exit(0)
 

@@ -13,8 +13,10 @@ from observability.monitoring import DisabledMonitoringStore, MonitoringStore
 from rag.context import RAGIndexer
 from rag.storage import MetadataFilter
 from tools.registry import ToolRegistry
+from utilities.ollama_client import OllamaHTTPClient
 
 
+DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8
 CommandHandler = Callable[[str, "CliSession", "CliCommandContext"], None]
 
 
@@ -47,6 +49,43 @@ class CliSession:
     last_request_messages: list[dict[str, Any]] | None = None
     last_rag_context: str | None = None
     active_persona_id: str = ""
+    last_prompt_tokens: int = 0
+    last_completion_tokens: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    context_window: int = 4096
+
+    @property
+    def last_turn_tokens(self) -> int:
+        """Return total tokens consumed in the most recent interaction."""
+        return self.last_prompt_tokens + self.last_completion_tokens
+
+    @property
+    def total_session_tokens(self) -> int:
+        """Return cumulative tokens consumed across the active session."""
+        return self.total_prompt_tokens + self.total_completion_tokens
+
+    @property
+    def context_usage_ratio(self) -> float:
+        """Return the ratio of active context token usage to the context window."""
+        return self.last_turn_tokens / max(1, self.context_window)
+
+    def get_budget_warning(self, threshold: float = DEFAULT_BUDGET_ALERT_THRESHOLD) -> str | None:
+        """Return a warning message when active context usage reaches or exceeds threshold."""
+        if self.context_usage_ratio >= threshold:
+            percentage = self.context_usage_ratio * 100
+            return (
+                f"Warning: Context token usage is at {percentage:.1f}% "
+                f"({self.last_turn_tokens}/{self.context_window} tokens)."
+            )
+        return None
+
+    def record_turn_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
+        """Update per-turn and cumulative session token counters."""
+        self.last_prompt_tokens = max(0, prompt_tokens)
+        self.last_completion_tokens = max(0, completion_tokens)
+        self.total_prompt_tokens += self.last_prompt_tokens
+        self.total_completion_tokens += self.last_completion_tokens
 
 
 @dataclass(frozen=True)
@@ -62,3 +101,4 @@ class CliCommandContext:
     personas: PersonasConfig = PersonasConfig()
     profile_manager: ProfileManager | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
+    chat_client: OllamaHTTPClient | None = None
