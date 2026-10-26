@@ -160,6 +160,31 @@ You: /quiz --questions 3 Le théorème de Pythagore
 
 A small model can write a well-formed quiz with a wrong answer key. The format is checked by the program, the content is not: read the answer key before using a quiz.
 
+### MCP servers
+
+SensAI can use the tools of any MCP server (Model Context Protocol, over stdio). The servers are declared in [`mcp_servers.json`](mcp_servers.json); at startup SensAI starts them, discovers their tools and offers them to the model like its own tools. `/tools` lists everything available, and a server that cannot start only gives a warning.
+
+```json
+{
+  "mcpServers": {
+    "web": {"command": "uvx", "args": ["mcp-server-fetch"], "timeout": 60}
+  }
+}
+```
+
+Two servers are declared by default:
+
+- `teacher`: our own server (`source/mcp/servers/teacher_tools.py`) with `calculate_grade`, `class_statistics`, `start_timer` and `timer_status`.
+- `web`: the official third-party [fetch server](https://pypi.org/project/mcp-server-fetch/), which reads a web page as text (`web__fetch`). It needs [`uv`](https://docs.astral.sh/uv/) (`brew install uv`); the package is downloaded on first use, which is why its timeout is 60 seconds. It refuses private and local addresses by default. Without `uv`, SensAI starts normally and shows a warning.
+
+```text
+You: Va chercher la page https://example.com et résume-la
+```
+
+Tools are named `<server>` + `__` + `<tool>`. Their output comes from outside our code, so it is handed to the model as data and not as instructions.
+
+To run the test against the real fetch server (needs `uv` and network access once): `SENSAI_THIRD_PARTY_TESTS=1 python3 -m unittest tests.test_mcp_third_party`.
+
 ### Chunking configuration
 
 The RAG chunking module splits normalized document text at paragraph and sentence boundaries. Its default configuration is an 800-character maximum chunk size with a 120-character overlap. These values are defined in `source/rag/chunking.py` and can be adjusted by creating a `ChunkingConfig` instance.
