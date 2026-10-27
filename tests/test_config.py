@@ -71,6 +71,7 @@ class TestConfigurationLoading(unittest.TestCase):
         configuration = load_config(self.config_path)
 
         self.assertEqual(configuration.model.chat_model, "test-chat")
+        self.assertEqual(configuration.model.fallback_chat_models, ("llama3.2:latest",))
         self.assertEqual(configuration.model.context_window, 4096)
         self.assertTrue(configuration.features.rag_enabled)
         self.assertEqual(configuration.rag.top_k, 3)
@@ -81,6 +82,26 @@ class TestConfigurationLoading(unittest.TestCase):
         self.config_path.write_text("{ not valid JSON", encoding="utf-8")
 
         with self.assertRaisesRegex(ConfigurationError, "Invalid JSON"):
+            load_config(self.config_path)
+
+    def test_loads_ordered_fallback_chat_models(self):
+        self.write_config({"model": {"fallback_chat_models": ["fallback-one", "fallback-two"]}})
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.model.fallback_chat_models, ("fallback-one", "fallback-two"))
+
+    def test_allows_an_empty_fallback_list_to_disable_fallback(self):
+        self.write_config({"model": {"fallback_chat_models": []}})
+
+        configuration = load_config(self.config_path)
+
+        self.assertEqual(configuration.model.fallback_chat_models, ())
+
+    def test_rejects_primary_model_repeated_as_a_fallback(self):
+        self.write_config({"model": {"fallback_chat_models": ["test-chat"]}})
+
+        with self.assertRaisesRegex(ConfigurationError, "must not contain 'chat_model'"):
             load_config(self.config_path)
 
     def test_uses_safe_logging_defaults_when_the_optional_section_is_absent(self):
