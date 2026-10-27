@@ -21,7 +21,7 @@ class ConfigurationError(ValueError):
 
 @dataclass(frozen=True)
 class ModelConfig:
-    chat_model: str = "llama3.2"
+    chat_model: str = "qwen2.5:3b"
     embedding_model: str = "nomic-embed-text"
     base_url: str = "http://localhost:11434"
     temperature: float = 0.2

@@ -31,12 +31,12 @@ Add the terminal capture supplied for this environment here after copying it int
 
 | Role | Model | Model-library size | Status |
 | --- | --- | --- | --- |
-| Current baseline | `llama3.2:latest` | 2.0 GB locally installed | Measured on 2026-10-27 |
-| French-capable alternative | `qwen2.5:3b` | 1.9 GB locally installed | Measured on 2026-10-27 |
+| Former baseline | `llama3.2:latest` | 2.0 GB locally installed | Measured on 2026-10-27 |
+| Selected default | `qwen2.5:3b` | 1.9 GB locally installed | Approved on 2026-10-27 |
 | Larger candidate | `qwen2.5:7b` | 4.7 GB locally installed | Measured on 2026-10-27 |
 | Deliberately excluded candidate | `qwen2.5:14b` | 9.0 GB in the Ollama library | Not downloaded or benchmarked |
 
-`llama3.2:latest` reports 3.21B parameters, Q4_K_M quantization, and tool capability on the benchmark machine. Qwen 2.5 officially supports French; its 3B and 7B variants give a same-size alternative and a larger candidate. [Ollama: Llama 3.2](https://ollama.com/library/llama3.2) · [Ollama: Qwen 2.5](https://ollama.com/library/qwen2.5)
+`llama3.2:latest` reports 3.21B parameters, Q4_K_M quantization, and tool capability on the benchmark machine. Qwen 2.5 officially supports French; its 3B variant is the selected default and its 7B variant is the larger candidate. [Ollama: Llama 3.2](https://ollama.com/library/llama3.2) · [Ollama: Qwen 2.5](https://ollama.com/library/qwen2.5)
 
 The 14B candidate is not declared impossible: Ollama can potentially offload a model between GPU and RAM. It is excluded from this protocol because its 9.0 GB library size exceeds the measured 8,188 MiB dedicated VRAM, while the benchmark machine has limited available RAM and active swap. This is a hardware-risk decision, not a measured performance result.
 
@@ -146,23 +146,22 @@ superseded by these clean runs.
 | Model | Run condition | First text token (ms) | Total latency (ms) | Output tok/s | Input tok/s | Peak Ollama RSS (MiB) | Peak VRAM (MiB) | Quality review | RAG-context result | Tool-call result | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
 | `llama3.2:latest` | Cold verified; warm mean | Cold: 4,370.4<br>Warm: 106.7 | Cold: 5,834.9<br>Warm: 1,528.3 | Cold: 105.6<br>Warm: 109.0 | Cold: 3,213.7<br>Warm: 5,072.7 | Cold: 2,246.7<br>Warm peak: 840.2 | Cold: 2,784.0<br>Warm peak: 2,786.0 | Manual review pending | 3/3 replies stayed within the supplied context | 3/3 calls emitted; 0/3 had valid empty arguments | Measured; tool schema needs improvement |
-| `qwen2.5:3b` | Cold verified; warm mean | Cold: 2,254.9<br>Warm: 99.5 | Cold: 2,992.7<br>Warm: 1,204.7 | Cold: 106.7<br>Warm: 111.0 | Cold: 3,293.7<br>Warm: 4,189.3 | Cold: 2,339.3<br>Warm peak: 949.3 | Cold: 2,442.0<br>Warm peak: 2,444.0 | Manual review pending | 3/3 replies stayed within the supplied context | 3/3 valid `get_time` calls | Measured; provisional default candidate |
+| `qwen2.5:3b` | Cold verified; warm mean | Cold: 2,254.9<br>Warm: 99.5 | Cold: 2,992.7<br>Warm: 1,204.7 | Cold: 106.7<br>Warm: 111.0 | Cold: 3,293.7<br>Warm: 4,189.3 | Cold: 2,339.3<br>Warm peak: 949.3 | Cold: 2,442.0<br>Warm peak: 2,444.0 | Team review accepted | 3/3 replies stayed within the supplied context | 3/3 valid `get_time` calls | Measured; selected default |
 | `qwen2.5:7b` | Cold verified; warm mean | Cold: 7,572.8<br>Warm: 118.1 | Cold: 9,778.4<br>Warm: 3,198.7 | Cold: 48.9<br>Warm: 53.7 | Cold: 1,072.9<br>Warm: 2,147.8 | Cold: 4,009.6<br>Warm peak: 681.4 | Cold: 4,856.0<br>Warm peak: 4,858.0 | Manual review pending | 3/3 replies stayed within the supplied context | 3/3 valid `get_time` calls | Measured; roughly half the 3B generation throughput |
 
 ![Llama 3.2 benchmark](images/benchmarks/llama3.2.png)
 ![Qwen 2.5 3B benchmark](images/benchmarks/qwen2.5-3b.png)
 ![Qwen 2.5 7B benchmark](images/benchmarks/qwen2.5-7b.png)
 
-## Provisional decision record
+## Approved decision record
 
 | Decision | Model | Evidence required before approval |
 | --- | --- | --- |
-| Recommended default | `qwen2.5:3b` (provisional) | It produced valid tool calls in 3/3 attempts, a verified cold first-text latency of 2,254.9 ms, and the best warm total-latency mean (1,204.7 ms), with 111.0 output tok/s. Confirm with the manual quality review before changing `config.json`. |
-| Fallback model | `llama3.2:latest` (provisional) | It has the lowest observed warm VRAM peak (2,786 MiB) and 109.0 output tok/s, but produced invalid `get_time` arguments in 3/3 attempts. |
+| Recommended default | `qwen2.5:3b` | Team-approved after the benchmark comparison: it produced valid tool calls in 3/3 attempts, a verified cold first-text latency of 2,254.9 ms, and the best warm total-latency mean (1,204.7 ms), with 111.0 output tok/s. `config.json` uses this model. |
+| Fallback model | `llama3.2:latest` | It has the lowest observed warm VRAM peak (2,786 MiB) and 109.0 output tok/s, but produced invalid `get_time` arguments in 3/3 attempts. |
 | Usable larger candidate, not selected as default | `qwen2.5:7b` | It ran reliably and produced valid tool calls in 3/3 attempts, but its verified cold total latency was 9,778.4 ms and its warm output speed was 53.7 tok/s: about half the Qwen 3B throughput. It remains an option if a future quality review demonstrates a meaningful quality advantage. |
 | Not practical | `qwen2.5:14b` | Documented pre-benchmark hardware risk: 9.0 GB library size exceeds 8,188 MiB VRAM. |
 
-The next action is a human quality review of the recorded answers. Update `config.json`
-only if the team approves the provisional recommendation after that review. Keep the
-raw JSON results with their date, model name, and prompt-set version so another team
-member can reproduce the conclusion.
+The team approved Qwen 3B as the default chat model. Keep the raw JSON results with
+their date, model name, and prompt-set version so another team member can reproduce
+the conclusion and reassess it after a model, prompt, or hardware change.

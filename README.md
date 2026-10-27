@@ -20,7 +20,7 @@ Start Ollama in another terminal, then download the configured default models on
 
 ```bash
 ollama serve
-ollama pull llama3.2
+ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
 ```
 

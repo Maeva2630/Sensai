@@ -44,7 +44,7 @@ Leave that terminal open. In another terminal, download the default chat and emb
 models once:
 
 ```bash
-ollama pull llama3.2
+ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
 ```
 
@@ -56,7 +56,7 @@ documents. If Ollama is already running as a service or desktop application, ano
 
 The repository's [`config.json`](../config.json) contains the model names, server URL,
 temperature, context size, features, RAG settings, logging, monitoring, and personas.
-It is read at startup. For example, the defaults include `llama3.2`,
+It is read at startup. For example, the defaults include `qwen2.5:3b`,
 `nomic-embed-text`, `http://localhost:11434`, and a temperature of `0.2`.
 
 Keep all required sections when editing the file. Set `model.chat_model` and
@@ -120,7 +120,7 @@ configuration.
   create a new environment after checking its documentation.
 - **Ollama connection error:** confirm Ollama is running and `model.base_url` in
   `config.json` points to the correct server. The default is `http://localhost:11434`.
-- **Model not found:** run `ollama pull llama3.2` or `ollama pull nomic-embed-text`, or
+- **Model not found:** run `ollama pull qwen2.5:3b` or `ollama pull nomic-embed-text`, or
   pull the model names configured in `config.json`.
 - **Configuration error:** check JSON syntax, required sections, and field values in
   `config.json`; restart after making changes.

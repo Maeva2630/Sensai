@@ -74,7 +74,7 @@ not change or detect the prompt automatically.
 
 ```text
 /metrics
-/metrics --from 2026-10-01 --to 2026-10-31 --model llama3.2
+/metrics --from 2026-10-01 --to 2026-10-31 --model qwen2.5:3b
 /metrics --prompt-version teacher-v1 --feature rag
 /metrics --tool get_time
 /metrics --error OllamaConnectionError
@@ -86,7 +86,7 @@ class name. A sample output is:
 
 ```text
 Local monitoring dashboard
-Filters: model=llama3.2
+Filters: model=qwen2.5:3b
 Model calls: 2
 Latency: average 2234.1 ms | p95 3360.2 ms
 Error rate: 0.0%

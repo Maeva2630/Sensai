@@ -34,7 +34,7 @@ Ollama server specified by `base_url`.
 ```json
 {
   "model": {
-    "chat_model": "llama3.2",
+    "chat_model": "qwen2.5:3b",
     "embedding_model": "nomic-embed-text",
     "base_url": "http://localhost:11434",
     "temperature": 0.2,
@@ -83,7 +83,7 @@ Ollama server specified by `base_url`.
 
 | Field | Accepted value | Default | Meaning |
 | --- | --- | --- | --- |
-| `chat_model` | Non-empty string | `llama3.2` | Ollama model generating chat responses. |
+| `chat_model` | Non-empty string | `qwen2.5:3b` | Ollama model generating chat responses. |
 | `embedding_model` | Non-empty string | `nomic-embed-text` | Ollama model used by RAG search. |
 | `base_url` | Non-empty string | `http://localhost:11434` | Ollama API address. |
 | `temperature` | Finite number from `0` to `2` | `0.2` | Response variation; lower values are usually more stable. |
