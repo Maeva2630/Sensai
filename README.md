@@ -62,6 +62,8 @@ file format, location, required sections, optional settings, defaults, and valid
   required fields, optional settings, defaults, and validation.
 - [Product scenario and traceability](docs/products-scenario.md): target teachers, final
   demonstration workflow, user stories, acceptance criteria, and test evidence.
+- [Local model benchmarks](docs/model-benchmarks.md): reproducible model-comparison
+  protocol, measurements, candidate models, and decision record.
 - [Feature documentation](docs/features/README.md): detailed guides, examples, limitations,
   and privacy considerations for every implemented feature.
 - [Testing and development checks](docs/testing.md): automated tests, coverage, linting,
