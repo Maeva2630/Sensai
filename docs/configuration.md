@@ -35,6 +35,7 @@ Ollama server specified by `base_url`.
 {
   "model": {
     "chat_model": "qwen2.5:3b",
+    "fallback_chat_models": ["llama3.2:latest"],
     "embedding_model": "nomic-embed-text",
     "base_url": "http://localhost:11434",
     "temperature": 0.2,
@@ -84,6 +85,7 @@ Ollama server specified by `base_url`.
 | Field | Accepted value | Default | Meaning |
 | --- | --- | --- | --- |
 | `chat_model` | Non-empty string | `qwen2.5:3b` | Ollama model generating chat responses. |
+| `fallback_chat_models` | Array of distinct, non-empty strings | `["llama3.2:latest"]` | Ordered models retried only when Ollama cannot find the active chat model. An empty array disables fallback. |
 | `embedding_model` | Non-empty string | `nomic-embed-text` | Ollama model used by RAG search. |
 | `base_url` | Non-empty string | `http://localhost:11434` | Ollama API address. |
 | `temperature` | Finite number from `0` to `2` | `0.2` | Response variation; lower values are usually more stable. |
@@ -92,6 +94,11 @@ Ollama server specified by `base_url`.
 The chat and embedding models serve different purposes. Pull both configured models with
 `ollama pull <model-name>`. Read the [RAG guide](features/rag.md#configuration-and-limitations)
 before changing the embedding model.
+
+The fallback list must not repeat `chat_model` or contain duplicates. SensAI shows a
+terminal message when it switches model and keeps that fallback active for the session.
+It does not retry another model when the Ollama server is stopped, unreachable, or a
+response fails after streaming has begun.
 
 ### `features`
 

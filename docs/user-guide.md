@@ -45,12 +45,14 @@ models once:
 
 ```bash
 ollama pull qwen2.5:3b
+ollama pull llama3.2:latest
 ollama pull nomic-embed-text
 ```
 
-The chat model generates answers; the embedding model is used to index and search
-documents. If Ollama is already running as a service or desktop application, another
-`ollama serve` may report that the address is already in use; use the existing server.
+The primary chat model generates answers; `llama3.2:latest` is the installed fallback;
+and the embedding model is used to index and search documents. If Ollama is already
+running as a service or desktop application, another `ollama serve` may report that
+the address is already in use; use the existing server.
 
 ## 4. Review the configuration
 
@@ -65,6 +67,22 @@ more varied answers; a larger `context_window` may require more memory and proce
 time. Neither setting guarantees factual accuracy. Restart SensAI after editing the file.
 See the [configuration reference](configuration.md) for the exact file location, complete
 JSON structure, accepted values, optional sections, persona prompts, and MCP distinction.
+
+### Automatic chat-model fallback
+
+SensAI reads `model.fallback_chat_models` as an ordered list. When Ollama replies that
+the primary model does not exist locally, SensAI retries the same request with the next
+installed fallback and displays the switch in the terminal. The selected fallback stays
+active for the rest of the session.
+
+```json
+"chat_model": "qwen2.5:3b",
+"fallback_chat_models": ["llama3.2:latest"]
+```
+
+This does not replace a stopped or unreachable Ollama server, and it does not retry an
+interrupted response after text has already appeared: retrying then could duplicate an
+answer. Install every configured fallback with `ollama pull <model-name>`.
 
 ## 5. Start SensAI
 
@@ -120,8 +138,9 @@ configuration.
   create a new environment after checking its documentation.
 - **Ollama connection error:** confirm Ollama is running and `model.base_url` in
   `config.json` points to the correct server. The default is `http://localhost:11434`.
-- **Model not found:** run `ollama pull qwen2.5:3b` or `ollama pull nomic-embed-text`, or
-  pull the model names configured in `config.json`.
+- **Model not found:** SensAI tries the next configured fallback automatically. Install
+  `qwen2.5:3b`, `llama3.2:latest`, and `nomic-embed-text`, or pull the model names
+  configured in `config.json`.
 - **Configuration error:** check JSON syntax, required sections, and field values in
   `config.json`; restart after making changes.
 - **No useful RAG answer:** make sure the file was indexed, `/rag on` is active, and any

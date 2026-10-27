@@ -21,8 +21,14 @@ Start Ollama in another terminal, then download the configured default models on
 ```bash
 ollama serve
 ollama pull qwen2.5:3b
+ollama pull llama3.2:latest
 ollama pull nomic-embed-text
 ```
+
+SensAI automatically retries with the configured fallback model when Ollama cannot
+find the primary chat model. The default fallback is `llama3.2:latest`; install it to
+keep this protection available. A stopped or unreachable Ollama server cannot be
+fixed by a fallback model.
 
 Start SensAI and type `/help` to see the available commands:
 
