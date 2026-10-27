@@ -7,7 +7,7 @@ For the complete `config.json` format and setting reference, see
 
 - [RAG](rag.md): index local documents and source code, retrieve excerpts, filter sources,
   and configure search.
-- [Tools and MCP](tools-and-mcp.md): use the native time tool and connect local MCP servers.
+- [Tools and MCP](tools-and-mcp.md): use native tools, generate and export quizzes, and connect MCP servers.
 - [Personas](personas.md): choose or configure the assistant's role and prompt.
 - [Sessions and profile](sessions-and-profile.md): save conversation text and configure
   information supplied to the assistant.

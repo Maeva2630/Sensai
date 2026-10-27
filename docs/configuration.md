@@ -43,7 +43,7 @@ Ollama server specified by `base_url`.
   "features": {
     "rag_enabled": true,
     "tools_enabled": true,
-    "memory_enabled": false,
+    "memory_enabled": true,
     "source_display_enabled": true
   },
   "rag": {
@@ -98,8 +98,8 @@ before changing the embedding model.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `rag_enabled` | Boolean | `true` | Makes `/rag on` available; RAG starts off each session. |
-| `tools_enabled` | Boolean | `true` | Registers the native `get_time` tool. |
-| `memory_enabled` | Boolean | `false` | Reserved; currently only displays a startup notice. |
+| `tools_enabled` | Boolean | `true` | Registers native time and permitted filesystem tools, including controlled quiz export. |
+| `memory_enabled` | Boolean | `true` | Enables session saving/loading, token usage, and conversation compression commands. |
 | `source_display_enabled` | Boolean | `true` | Initial visibility of RAG source lines. |
 
 ### `rag`

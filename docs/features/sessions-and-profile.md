@@ -23,11 +23,9 @@ python3 source/main.py --session 2cb94e54-3573-4b0e-973b-428328d3c282
 ```
 
 Replace the example identifier with your own, without `.json`. `/load <session_id>`
-loads data into the session manager during a running session, but currently does **not**
-replace the active history sent to the model. Use `--session` at startup to resume a
-saved conversation in chat. Because `/load` also changes the session manager's active
-identifier, a later save can update the loaded session file; avoid using it when you need
-the current chat and saved file to remain independent.
+replaces the active user and assistant history sent to the model while keeping the active
+persona and profile system prompt. Loading also changes the session manager's active
+identifier, so a later save updates the loaded session file.
 
 ## Profile
 
@@ -46,8 +44,18 @@ The profile is added to the system prompt. A different profile can be selected w
 `python3 source/main.py --profile path/to/profile.json`. Changes are read when SensAI
 starts, not dynamically during a session.
 
+When `features.memory_enabled` is `true`, `/tokens` displays token use for the last turn,
+the active context window, and the session total. `/compress` asks the model to summarize
+older turns when the conversation becomes long; automatic compression can also run when
+context use approaches the configured limit. This is conversation management, not a
+long-term learner-memory system that automatically infers facts about a person.
+
+```text
+You: /tokens
+You: /compress
+```
+
 Sessions and profiles can contain personal information. Review them before sharing or
 committing files; the `sessions` directory is Git-ignored, but do not assume every profile
-file is. These mechanisms are separate from the reserved `memory_enabled` setting:
-enabling that setting currently displays a notice rather than enabling an additional
-long-term memory feature.
+file is. Disable `features.memory_enabled` if session persistence and context-management
+commands must not be available.

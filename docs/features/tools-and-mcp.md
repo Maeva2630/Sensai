@@ -21,31 +21,48 @@ Assistant: The local time is 14:30.
 ```
 
 The exchange is illustrative. The time is local to the machine running the tool.
-SensAI selects relevant tools for a request; when any tool is offered, the current chat
-flow does not retrieve RAG context for that request.
+SensAI selects relevant tools for a request. RAG context can still be included alongside
+tools; only requests explicitly claimed by a narrow tool, such as `get_time`, bypass
+document retrieval.
+
+## Quiz generation and controlled export
+
+`/quiz` asks the model for a validated multiple-choice quiz. With RAG enabled, it uses
+matching indexed course excerpts; without RAG, it uses the model's general knowledge.
+
+```text
+You: /quiz --questions 3 --language French Le théorème de Pythagore
+You: /quiz --questions 5 --save exports/volcans.md Les volcans
+You: /quiz --questions 5 --save exports/volcans_eleves.md --no-answers Les volcans
+```
+
+The topic is required. `--questions` accepts the range printed by `/help`; quote a save
+path containing spaces. SensAI can only write exports to directories allowed by
+`permissions.json`; use `/permissions` to display those rules. The model may also call a
+tool to save the last generated quiz, but `/quiz --save` is the reliable way to choose
+whether answers are included or an existing file may be overwritten.
 
 ## Local MCP servers
 
-MCP allows external local servers to expose additional tools. SensAI reads an optional
-`mcp_servers.json` from the directory where it is started. For a local demonstration,
-create this file in the repository root:
+MCP (Model Context Protocol) allows external local servers to expose additional tools.
+SensAI reads `mcp_servers.json` from the repository root. The repository configuration
+starts a teacher-tools server and can also start the optional `mcp-server-fetch` server:
 
 ```json
 {
   "mcpServers": {
     "example": {
       "command": "python3",
-      "args": ["tests/fake_mcp_server.py"],
+      "args": ["source/mcp/servers/teacher_tools.py"],
       "timeout": 10
     }
   }
 }
 ```
 
-Start SensAI from the repository root and use `/tools`. One listed tool is
-`example__echo [example]`. The server in this example is a test fixture: some of its
-tools deliberately fail, wait, or terminate the server. Remove its configuration entry
-when finished.
+Start SensAI from the repository root and use `/tools` to see the names exposed by each
+server. MCP tool names are prefixed with the server name, for example
+`teacher__...`, to avoid collisions with native tools.
 
 Only configure servers you trust: SensAI starts their commands on your machine. Review
 their arguments, permissions, and data access. Avoid storing secrets in example files.

@@ -83,6 +83,6 @@ rebuild or document-removal command: preserve your existing database and plan a 
 re-indexing workflow before changing embedding models.
 
 The assistant is instructed to say when the answer is missing, but a model can still
-ignore instructions or generate inaccurate text. Also, the current chat flow skips RAG
-retrieval when a tool is offered for that question. A separate reranking step is not
-currently implemented. See [tools and MCP](tools-and-mcp.md).
+ignore instructions or generate inaccurate text. RAG context remains available when tools
+are offered, except for requests explicitly claimed by a narrow tool such as a time query.
+A separate reranking step is not currently implemented. See [tools and MCP](tools-and-mcp.md).
