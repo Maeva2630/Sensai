@@ -11,7 +11,7 @@ from cli.error_handling import report_cli_error
 from cli.commands.help import display_unknown_command
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession, CommandDefinition
-from cli.terminal import assistant_prefix, configure_line_editing, read_user_input
+from cli.terminal import ask_confirmation, assistant_prefix, configure_line_editing, read_user_input
 from cli.tool_calls import run_tool_calls
 from config import AppConfig, FeatureConfig
 from memory.compression import (
@@ -37,6 +37,7 @@ from tools.permissions import PermissionChecker, load_permissions
 from tools.quiz_export import QuizStore, SaveLastQuizTool
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
+from tools.web_search import WebSearchTool
 from utilities.ollama_client import (
     OllamaError,
     OllamaHTTPClient,
@@ -69,10 +70,13 @@ def default_registry(
     enabled: bool = True,
     permission_checker: PermissionChecker | None = None,
     quiz_store: QuizStore | None = None,
+    network_enabled: bool = False,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     if enabled:
         registry.register(GetTimeTool())
+        if network_enabled:
+            registry.register(WebSearchTool())
         if permission_checker is not None:
             for tool in filesystem_tools(permission_checker):
                 registry.register(tool)
@@ -174,7 +178,7 @@ def cli(
         conversation_session = SessionManager(session_id=session_id)
         profile_manager = ProfileManager(profile_path=profile_path)
         loaded = conversation_session.load(session_id) if session_id else None
-    except FileNotFoundError as error:
+    except (FileNotFoundError, ValueError) as error:
         report_cli_error(error, logger)
         sys.exit(1)
     messages = list(loaded) if loaded else []
@@ -189,12 +193,19 @@ def cli(
     permission_checker, permission_warnings = load_permissions()
     for warning in permission_warnings:
         print(f"Warning: {warning}")
+    if feature_config.network_enabled:
+        print("Network access is enabled: web search and web servers can send requests to the internet.")
     registry = (
         dependencies.registry
         if dependencies.registry is not None
-        else default_registry(feature_config.tools_enabled, permission_checker, quiz_store)
+        else default_registry(
+            feature_config.tools_enabled,
+            permission_checker,
+            quiz_store,
+            feature_config.network_enabled,
+        )
     )
-    mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file()
+    mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file(network_enabled=feature_config.network_enabled)
     for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
         print(f"Warning: {warning}")
     atexit.register(mcp_manager.close)
@@ -238,6 +249,7 @@ def cli(
                 continue
 
             turn_start = len(messages)
+            _take_web_sources(registry)
             messages.append({"role": "user", "content": user_input})
             tools = registry.to_ollama_tools(user_input)
             rag_system_message = None
@@ -322,6 +334,9 @@ def cli(
                         attribution = format_source_attribution(prepared_context.results)
                         if attribution:
                             print(f"\n{attribution}")
+                    web_sources = _take_web_sources(registry)
+                    if web_sources:
+                        print("\nWeb sources consulted:\n" + "\n".join(f"- {url}" for url in web_sources))
                     break
                 run_tool_calls(
                     registry,
@@ -329,6 +344,7 @@ def cli(
                     messages,
                     command_context.monitoring_store,
                     interaction_id,
+                    confirm=ask_confirmation,
                 )
             else:
                 print(f"\nWarning: stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer.")
@@ -373,6 +389,12 @@ def cli(
 
         finally:
             print()
+
+
+def _take_web_sources(registry: ToolRegistry) -> list[str]:
+    """Return the URLs the web search tool offered during this turn, and reset its list."""
+    tool = registry.get("web_search")
+    return tool.take_sources() if isinstance(tool, WebSearchTool) else []
 
 
 def _create_monitoring_store(app_config: AppConfig) -> MonitoringStore | DisabledMonitoringStore:

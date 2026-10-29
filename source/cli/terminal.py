@@ -34,6 +34,11 @@ def read_user_input(line_editing_enabled: bool) -> str:
     return user_input
 
 
+def ask_confirmation(question: str) -> bool:
+    """Ask a yes/no question on the terminal; anything but yes (y, yes, o, oui) means no."""
+    return input(f"{question} [y/N] ").strip().lower() in {"y", "yes", "o", "oui"}
+
+
 def user_prompt(line_editing_enabled: bool, stream: TextIO | None = None) -> str:
     """Return the green bold user prompt, preserving readline cursor positioning."""
     return _styled_label("You:", _BOLD_GREEN, stream, line_editing_enabled)

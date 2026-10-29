@@ -41,6 +41,14 @@ class Tool(ABC):
             },
         }
 
+    def confirmation_prompt(self, arguments: Dict[str, Any]) -> str | None:
+        """Return a question to ask the user before running, or None to run without asking.
+
+        Tools that send data outside the machine use it so the user sees exactly
+        what leaves before it is sent.
+        """
+        return None
+
     def is_relevant_for(self, user_input: str) -> bool:
         """Return whether this tool should be offered for a user request.
 

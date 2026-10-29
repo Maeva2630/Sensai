@@ -1,9 +1,11 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from mcp.client import MCPClient, MCPError, MCPTimeoutError, MCPToolError
 from mcp.config import DEFAULT_CONFIG_PATH, MCPServerConfig, load_mcp_config
 from tools.base import Tool, ToolError
 from tools.registry import ToolRegistry
+from tools.safety import personal_data_warning
 
 
 def _object_schema(input_schema: Any) -> Dict[str, Any]:
@@ -23,13 +25,20 @@ class MCPTool(Tool):
 
     untrusted = True
 
-    def __init__(self, server: str, client: MCPClient, definition: Dict[str, Any]):
+    def __init__(self, server: str, client: MCPClient, definition: Dict[str, Any], network: bool = False):
         self.server = server
+        self.network = network
         self.remote_name = definition["name"]
         self.name = f"{server}__{self.remote_name}"
         self.description = definition.get("description") or f"Tool '{self.remote_name}' from MCP server '{server}'."
         self.parameters = _object_schema(definition.get("inputSchema"))
         self._client = client
+
+    def confirmation_prompt(self, arguments: Dict[str, Any]) -> str | None:
+        if not self.network:
+            return None
+        shown = json.dumps(arguments, ensure_ascii=False)
+        return f"Call {self.name} with {shown}? This sends a request to the internet.{personal_data_warning(shown)}"
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         try:
@@ -54,9 +63,10 @@ class MCPManager:
         self._config_warnings = list(warnings or [])
 
     @classmethod
-    def from_config_file(cls, path: str = DEFAULT_CONFIG_PATH) -> "MCPManager":
+    def from_config_file(cls, path: str = DEFAULT_CONFIG_PATH, network_enabled: bool = False) -> "MCPManager":
+        """Load the servers from a file; servers marked `network` are kept only if network access is on."""
         servers, warnings = load_mcp_config(path)
-        return cls(servers, warnings)
+        return cls([server for server in servers if network_enabled or not server.network], warnings)
 
     @property
     def tools(self) -> List[MCPTool]:
@@ -79,7 +89,7 @@ class MCPManager:
                 warnings.append(f"MCP server '{server.name}' unavailable: {e}")
                 continue
             self._clients.append(client)
-            self._tools.extend(MCPTool(server.name, client, definition) for definition in definitions)
+            self._tools.extend(MCPTool(server.name, client, definition, server.network) for definition in definitions)
         return warnings
 
     def register_tools(self, registry: ToolRegistry) -> List[str]:

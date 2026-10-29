@@ -331,15 +331,17 @@ SensAI can use the tools of any MCP server (Model Context Protocol, over stdio).
 ```json
 {
   "mcpServers": {
-    "web": {"command": "uvx", "args": ["mcp-server-fetch"], "timeout": 60}
+    "web": {"command": "uvx", "args": ["mcp-server-fetch"], "timeout": 60, "network": true}
   }
 }
 ```
 
+A server marked `"network": true` reaches the internet, so it only starts when network access is enabled (see "Web search").
+
 Two servers are declared by default:
 
 - `teacher`: our own server (`source/mcp/servers/teacher_tools.py`) with `calculate_grade`, `class_statistics`, `start_timer` and `timer_status`.
-- `web`: the official third-party [fetch server](https://pypi.org/project/mcp-server-fetch/), which reads a web page as text (`web__fetch`). It needs [`uv`](https://docs.astral.sh/uv/) (`brew install uv`); the package is downloaded on first use, which is why its timeout is 60 seconds. It refuses private and local addresses by default. Without `uv`, SensAI starts normally and shows a warning.
+- `web` (network): the official third-party [fetch server](https://pypi.org/project/mcp-server-fetch/), which reads a web page as text (`web__fetch`). It needs [`uv`](https://docs.astral.sh/uv/) (`brew install uv`); the package is downloaded on first use, which is why its timeout is 60 seconds. It refuses private and local addresses by default. Without `uv`, SensAI starts normally and shows a warning.
 
 ```text
 You: Va chercher la page https://example.com et résume-la
@@ -348,6 +350,34 @@ You: Va chercher la page https://example.com et résume-la
 Tools are named `<server>` + `__` + `<tool>`. Their output comes from outside our code, so it is handed to the model as data and not as instructions.
 
 To run the test against the real fetch server (needs `uv` and network access once): `SENSAI_THIRD_PARTY_TESTS=1 python3 -m unittest tests.test_mcp_third_party`.
+
+### Web search
+
+SensAI is local by default. Anything that reaches the internet (the `web_search` tool and the `web` MCP server) is off until you turn it on in `config.json`:
+
+```json
+"features": { "network_enabled": true }
+```
+
+At startup SensAI then prints a line saying network access is enabled. With it on, the model can search the web when a request asks for it ("cherche sur le web...") or needs recent information, and a question about your own course material does not trigger a search.
+
+```text
+You: Cherche sur le web les nouveautés de Python 3.13
+[tool] web_search({"query": "nouveautés Python 3.13"})
+...
+Web sources consulted:
+- https://docs.python.org/3.13/whatsnew/3.13.html
+```
+
+- `web_search` uses the DuckDuckGo HTML page: no API key and no new dependency. It returns at most 5 results (title, URL, snippet), times out after 10 seconds and waits 2 seconds between two searches. This page is not an official API, so it can change or block requests.
+- To read a result, the model passes its URL to `web__fetch`.
+- **Nothing leaves the machine without your approval.** Before each `web_search` or `web__fetch`, SensAI shows the exact text or URL that would be sent and asks `[y/N]`. Anything but yes cancels the call, and the model is told to answer without it. This matters because the model chooses the query: a poisoned page could try to slip private data (student names, grades) into it. Never type student names in a request that may trigger a search.
+- The results are framed as external data, like any MCP output, and the model is told to answer from them and cite the URLs it used. The program prints the URLs it offered after the answer.
+- If the search fails (no network, blocked request), the model is told to answer without it and to say so.
+
+### Privacy
+
+Conversations and the profile are stored with owner-only permissions, `/forget` deletes this session's saved copy (`/forget all` deletes every saved session), and nothing is sent to the internet without a yes from you. See [docs/RGPD.md](docs/RGPD.md) for what is stored, what can leave the machine and what to do after a leak.
 
 ### Chunking configuration
 
