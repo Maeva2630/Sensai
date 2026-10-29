@@ -1,8 +1,17 @@
 """CLI commands for managing the living artifact deliverable."""
 
+import re
 from pathlib import Path
 
 from cli.session import CliCommandContext, CliSession, CommandDefinition
+from tools.base import ToolError
+
+_TOKEN = re.compile(r'"([^"]*)"|(\S+)')
+
+
+def _parse_tokens(user_input: str) -> list[str]:
+    """Parse user input into tokens, respecting double quotes."""
+    return [quoted if quoted or not word else word for quoted, word in _TOKEN.findall(user_input)]
 
 
 def _dispatch_artifact(
@@ -16,7 +25,11 @@ def _dispatch_artifact(
         print("Artifact management is not available.")
         return
 
-    tokens = user_input.strip().split()
+    if user_input.count('"') % 2:
+        print("Invalid command: a double quote is not closed.")
+        return
+
+    tokens = _parse_tokens(user_input)
     subcommand = tokens[1] if len(tokens) > 1 else "view"
 
     if subcommand in ("view", "show"):
@@ -47,13 +60,43 @@ def _dispatch_artifact(
         return
 
     if subcommand == "export":
-        if len(tokens) < 3:
-            print("Usage: /artifact export <filepath>")
+        args = tokens[2:]
+        overwrite = False
+        filepath_tokens = []
+        for arg in args:
+            if arg == "--overwrite":
+                overwrite = True
+            else:
+                filepath_tokens.append(arg)
+
+        if len(filepath_tokens) != 1:
+            print("Usage: /artifact export <filepath> [--overwrite]")
             return
+
         if not manager.has_artifact():
             print("Cannot export: No active artifact.")
             return
-        dest_path = Path(tokens[2])
+
+        target_str = filepath_tokens[0]
+        checker = context.permission_checker
+        if checker is None:
+            print("Cannot export: Permission checker is not available.")
+            return
+
+        try:
+            dest_path = checker.require(target_str, "write")
+        except ToolError as e:
+            print(f"Cannot export: {e}")
+            return
+
+        if dest_path.is_dir():
+            print(f"Cannot export: '{target_str}' is a directory.")
+            return
+
+        if dest_path.exists() and not overwrite:
+            print(f"Cannot export: File '{target_str}' already exists. Use --overwrite to replace it.")
+            return
+
         try:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             dest_path.write_text(manager.get_content(), encoding="utf-8")
@@ -68,20 +111,20 @@ def _dispatch_artifact(
         print(f"Artifact initialized with title: '{title}'")
         return
 
-    print("Unknown artifact subcommand. Usage: /artifact [view | outline | export <path> | reset | init <title>]")
+    print("Unknown artifact subcommand. Usage: /artifact [view | outline | export <path> [--overwrite] | reset | init <title>]")
 
 
 ARTIFACT_COMMANDS: tuple[CommandDefinition, ...] = (
     CommandDefinition(
         name="/artifact",
-        usage="/artifact [view | outline | export <path> | reset | init <title>]",
+        usage="/artifact [view | outline | export <path> [--overwrite] | reset | init <title>]",
         description="Inspect, outline, export, or reset the living artifact document.",
         feature="Artifact",
         handler=_dispatch_artifact,
     ),
     CommandDefinition(
         name="/doc",
-        usage="/doc [view | outline | export <path> | reset | init <title>]",
+        usage="/doc [view | outline | export <path> [--overwrite] | reset | init <title>]",
         description="Alias for /artifact.",
         feature="Artifact",
         handler=_dispatch_artifact,
