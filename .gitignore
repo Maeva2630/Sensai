@@ -220,3 +220,5 @@ __marimo__/
 
 # Session files
 sessions
+# Generated local benchmark responses may contain model output and hardware measurements.
+benchmarks/results/*.json
