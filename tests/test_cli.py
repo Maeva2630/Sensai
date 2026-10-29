@@ -1588,7 +1588,23 @@ class TestCLIArtifactCommands(unittest.TestCase):
 
     def setUp(self):
         import tempfile
+        from pathlib import Path
+        from tools.permissions import AllowedDirectory, PermissionChecker
+
         self.temp_dir = tempfile.mkdtemp()
+        self.root_path = Path(self.temp_dir).resolve()
+        self.export_dir = self.root_path / "exports"
+        self.export_dir.mkdir()
+        self.readonly_dir = self.root_path / "readonly"
+        self.readonly_dir.mkdir()
+
+        self.checker = PermissionChecker(
+            [
+                AllowedDirectory(self.export_dir, ("read", "write")),
+                AllowedDirectory(self.readonly_dir, ("read",)),
+            ],
+            base_dir=self.root_path,
+        )
         self.artifact_manager = ArtifactManager(session_id="test_cli", storage_dir=self.temp_dir)
         self.conversation_session = MagicMock()
         self.context = CliCommandContext(
@@ -1596,6 +1612,7 @@ class TestCLIArtifactCommands(unittest.TestCase):
             rag_indexer=MagicMock(),
             conversation_session=self.conversation_session,
             artifact_manager=self.artifact_manager,
+            permission_checker=self.checker,
         )
         self.session = CliSession()
         self.handler = ARTIFACT_COMMANDS[0].handler
@@ -1621,7 +1638,7 @@ class TestCLIArtifactCommands(unittest.TestCase):
         self.artifact_manager.init_document("Export Test")
         self.artifact_manager.update_section("Overview", "Content to export.")
 
-        export_file = os.path.join(self.temp_dir, "exported_doc.md")
+        export_file = str(self.export_dir / "exported_doc.md")
         self.handler(f"/artifact export {export_file}", self.session, self.context)
 
         self.assertTrue(os.path.exists(export_file))
@@ -1629,6 +1646,34 @@ class TestCLIArtifactCommands(unittest.TestCase):
             content = f.read()
         self.assertIn("# Export Test", content)
         self.assertIn("Content to export.", content)
+
+    def test_artifact_export_with_spaces_in_quotes(self):
+        self.artifact_manager.init_document("Export Test")
+        self.artifact_manager.update_section("Overview", "Content to export.")
+
+        export_file = self.export_dir / "my notes.md"
+        self.handler(f'/artifact export "{export_file}"', self.session, self.context)
+
+        self.assertTrue(export_file.exists())
+        self.assertIn("Content to export.", export_file.read_text(encoding="utf-8"))
+
+    def test_artifact_export_permission_denied(self):
+        self.artifact_manager.init_document("Export Test")
+        readonly_file = self.readonly_dir / "doc.md"
+
+        self.handler(f"/artifact export {readonly_file}", self.session, self.context)
+        self.assertFalse(readonly_file.exists())
+
+    def test_artifact_export_without_overwrite_refuses(self):
+        self.artifact_manager.init_document("Export Test")
+        export_file = self.export_dir / "existing.md"
+        export_file.write_text("Original content", encoding="utf-8")
+
+        self.handler(f"/artifact export {export_file}", self.session, self.context)
+        self.assertEqual(export_file.read_text(encoding="utf-8"), "Original content")
+
+        self.handler(f"/artifact export {export_file} --overwrite", self.session, self.context)
+        self.assertIn("# Export Test", export_file.read_text(encoding="utf-8"))
 
     def test_artifact_reset(self):
         self.artifact_manager.init_document("To Reset")
