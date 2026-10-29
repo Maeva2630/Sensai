@@ -1,0 +1,103 @@
+{
+  "version": "teacher-scenario-v1",
+  "protocol": {
+    "temperature": 0.2,
+    "num_ctx": 4096,
+    "keep_alive": "10m"
+  },
+  "cases": [
+    {
+      "id": "french_pedagogy",
+      "purpose": "French teacher-assistant explanation",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are SensAI, a local assistant for primary and middle-school teachers. Answer in French. Be concise, practical, and pedagogical."
+        },
+        {
+          "role": "user",
+          "content": "Prépare une explication de 120 mots maximum sur les fractions équivalentes pour une classe de sixième. Donne un exemple concret et une question de vérification."
+        }
+      ],
+      "manual_quality_checks": [
+        "The answer is in French.",
+        "It explains equivalent fractions correctly.",
+        "It includes one concrete example.",
+        "It includes one check question.",
+        "It is suitable for primary-to-middle-school level."
+      ]
+    },
+    {
+      "id": "math_symbols",
+      "purpose": "Mathematical explanation with symbols",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are SensAI, a local assistant for teachers. Answer in French with precise but accessible mathematical vocabulary."
+        },
+        {
+          "role": "user",
+          "content": "Explique la formule de résolution de ax² + bx + c = 0. Définis clairement le symbole Δ et explique ce que signifie Δ > 0, Δ = 0 et Δ < 0."
+        }
+      ],
+      "manual_quality_checks": [
+        "The quadratic formula is correct.",
+        "Delta is defined as b² - 4ac.",
+        "All three cases for delta are explained correctly.",
+        "The explanation is in French and is pedagogical."
+      ]
+    },
+    {
+      "id": "rag_context_compliance",
+      "purpose": "Response grounded in supplied RAG context",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are SensAI. Answer only with the supplied context. If the answer is absent, say that it is absent from the indexed documents.\n\nRAG CONTEXT — source: fractions.md\nA fraction represents one or more equal parts of a whole. In the fraction 3/4, 3 is the numerator and 4 is the denominator. Equivalent fractions represent the same quantity, for example 1/2 and 2/4."
+        },
+        {
+          "role": "user",
+          "content": "D'après le document, que représentent 1/2 et 2/4 ?"
+        }
+      ],
+      "manual_quality_checks": [
+        "The answer is in French.",
+        "It states that 1/2 and 2/4 are equivalent fractions.",
+        "It does not add unrelated facts.",
+        "It follows the supplied-context instruction."
+      ]
+    },
+    {
+      "id": "tool_request",
+      "purpose": "Tool-call request recognition",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are SensAI, a local assistant for teachers. Use a provided tool when it is necessary to answer the request."
+        },
+        {
+          "role": "user",
+          "content": "Quelle heure est-il actuellement ? Utilise l'outil disponible."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_time",
+            "description": "Get the current local date and time.",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          }
+        }
+      ],
+      "manual_quality_checks": [
+        "The response requests get_time instead of inventing a time.",
+        "Tool arguments are an empty object."
+      ]
+    }
+  ]
+}

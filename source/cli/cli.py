@@ -160,6 +160,15 @@ def _request_messages(
     return [messages[0], {"role": "system", "content": rag_system_message}, *messages[1:]]
 
 
+def _display_model_fallback(primary_model: str, fallback_model: str) -> None:
+    """Keep a model switch visible instead of silently changing an answer source."""
+    logger.warning("model.fallback primary=%s fallback=%s", primary_model, fallback_model)
+    print(
+        f"Model '{primary_model}' is unavailable. "
+        f"Retrying with fallback '{fallback_model}'."
+    )
+
+
 def cli(
     app_config: AppConfig | None = None,
     dependencies: CliDependencies | None = None,
@@ -215,6 +224,7 @@ def cli(
         rag_indexer=dependencies.rag_indexer,
         rag_context_provider=dependencies.rag_context_provider,
         client_factory=OllamaHTTPClient,
+        on_fallback=_display_model_fallback,
     )
     command_context = CliCommandContext(
         feature_config,
@@ -298,7 +308,7 @@ def cli(
                 except OllamaError as error:
                     _record_model_interaction(
                         command_context,
-                        model_config.chat_model,
+                        runtime.chat_client.model,
                         app_config.monitoring.prompt_version,
                         feature_config,
                         request_messages,
@@ -314,7 +324,7 @@ def cli(
                 session.record_turn_tokens(prompt_tokens, completion_tokens)
                 interaction_id = _record_model_interaction(
                     command_context,
-                    model_config.chat_model,
+                    runtime.chat_client.model,
                     app_config.monitoring.prompt_version,
                     feature_config,
                     request_messages,

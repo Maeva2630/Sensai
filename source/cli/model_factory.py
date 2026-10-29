@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from collections.abc import Callable
 
+from cli.fallback import FallbackChatClient, FallbackReporter
 from config import ModelConfig, RagConfig
 from rag.context import RAGContextConfig, RAGContextProvider, RAGIndexer
 from rag.embeddings import EmbeddingConfig, EmbeddingGenerator
@@ -14,7 +15,7 @@ from utilities.ollama_client import OllamaHTTPClient
 class ModelRuntime:
     """Model-backed services required by one interactive CLI session."""
 
-    chat_client: OllamaHTTPClient
+    chat_client: OllamaHTTPClient | FallbackChatClient
     rag_indexer: RAGIndexer
     rag_context_provider: RAGContextProvider
 
@@ -35,12 +36,22 @@ def create_model_runtime(
     rag_indexer: RAGIndexer | None = None,
     rag_context_provider: RAGContextProvider | None = None,
     client_factory: Callable[..., OllamaHTTPClient] = OllamaHTTPClient,
+    on_fallback: FallbackReporter | None = None,
 ) -> ModelRuntime:
     """Build chat and RAG services, preserving injected services for tests."""
-    chat_client = client_factory(
-        base_url=model_config.base_url,
-        model=model_config.chat_model,
-        options={"temperature": model_config.temperature, "num_ctx": model_config.context_window},
+    chat_models = (model_config.chat_model, *model_config.fallback_chat_models)
+    chat_clients = tuple(
+        client_factory(
+            base_url=model_config.base_url,
+            model=model,
+            options={"temperature": model_config.temperature, "num_ctx": model_config.context_window},
+        )
+        for model in chat_models
+    )
+    chat_client = (
+        FallbackChatClient(chat_clients, on_fallback, model_names=chat_models)
+        if model_config.fallback_chat_models
+        else chat_clients[0]
     )
     if rag_indexer is None:
         embedding_client = client_factory(

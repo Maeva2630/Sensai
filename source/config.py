@@ -21,7 +21,8 @@ class ConfigurationError(ValueError):
 
 @dataclass(frozen=True)
 class ModelConfig:
-    chat_model: str = "llama3.2"
+    chat_model: str = "qwen2.5:3b"
+    fallback_chat_models: tuple[str, ...] = ("llama3.2:latest",)
     embedding_model: str = "nomic-embed-text"
     base_url: str = "http://localhost:11434"
     temperature: float = 0.2
@@ -175,6 +176,23 @@ def _string(section: Mapping[str, Any], name: str) -> str:
     return value.strip()
 
 
+def _string_list(
+    section: Mapping[str, Any],
+    name: str,
+    default: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """Read an optional ordered list of distinct, non-empty model names."""
+    value = section.get(name, list(default))
+    if not isinstance(value, list):
+        raise ConfigurationError(f"'{name}' must be an array of non-empty strings.")
+    values = tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
+    if len(values) != len(value):
+        raise ConfigurationError(f"'{name}' must be an array of non-empty strings.")
+    if len(set(values)) != len(values):
+        raise ConfigurationError(f"'{name}' must not contain duplicate model names.")
+    return values
+
+
 def _boolean(section: Mapping[str, Any], name: str) -> bool:
     value = section.get(name)
     if not isinstance(value, bool):
@@ -200,8 +218,17 @@ def _read_model(section: Mapping[str, Any]) -> ModelConfig:
     temperature = _number(section, "temperature")
     if not 0.0 <= temperature <= 2.0:
         raise ConfigurationError("'temperature' must be between 0 and 2.")
+    chat_model = _string(section, "chat_model")
+    fallback_chat_models = _string_list(
+        section,
+        "fallback_chat_models",
+        ModelConfig().fallback_chat_models,
+    )
+    if chat_model in fallback_chat_models:
+        raise ConfigurationError("'fallback_chat_models' must not contain 'chat_model'.")
     return ModelConfig(
-        chat_model=_string(section, "chat_model"),
+        chat_model=chat_model,
+        fallback_chat_models=fallback_chat_models,
         embedding_model=_string(section, "embedding_model"),
         base_url=_string(section, "base_url"),
         temperature=temperature,
