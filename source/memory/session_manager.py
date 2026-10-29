@@ -1,7 +1,24 @@
 import json
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
+
+from memory.private_files import make_private_dir, write_private_json
+
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class InvalidSessionIdError(ValueError):
+    """Raised for a session identifier that could point outside the sessions folder."""
+
+
+def _validated(session_id: str) -> str:
+    if not _SESSION_ID.match(session_id):
+        raise InvalidSessionIdError(
+            "Invalid session id: use only letters, digits, '-' and '_' (64 characters at most)."
+        )
+    return session_id
 
 
 class SessionManager:
@@ -9,7 +26,7 @@ class SessionManager:
 
     def __init__(self, session_id: str | None = None, storage_dir: str = "sessions"):
         self.storage_dir = Path(storage_dir)
-        self.session_id = session_id or self._generate_id()
+        self.session_id = _validated(session_id) if session_id else self._generate_id()
         self.messages: list[dict] = []
 
     def add_message(self, role: str, content: str) -> None:
@@ -26,8 +43,8 @@ class SessionManager:
 
     def save(self) -> str:
         """Save the session to a JSON file at sessions/<session_id>.json."""
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        session_path = self.storage_dir / f"{self.session_id}.json"
+        make_private_dir(self.storage_dir)
+        session_path = self.storage_dir / f"{_validated(self.session_id)}.json"
 
         data = {
             "session_id": self.session_id,
@@ -35,15 +52,14 @@ class SessionManager:
             "messages": self.messages,
         }
 
-        with open(session_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        write_private_json(session_path, data)
 
         print(f"Session saved at {session_path}") # can be removed 
         return str(session_path)
 
     def load(self, session_id: str | None = None) -> list[dict]:
         """Load messages from sessions/<session_id>.json."""
-        target_id = session_id or self.session_id
+        target_id = _validated(session_id or self.session_id)
         session_path = self.storage_dir / f"{target_id}.json"
 
         if not session_path.exists():
@@ -55,6 +71,25 @@ class SessionManager:
         self.session_id = data.get("session_id", target_id)
         self.messages = data.get("messages", [])
         return self.messages
+
+    def delete(self, session_id: str | None = None) -> bool:
+        """Delete one saved session file. Returns whether a file was removed."""
+        session_path = self.storage_dir / f"{_validated(session_id or self.session_id)}.json"
+        if not session_path.is_file():
+            return False
+        session_path.unlink()
+        return True
+
+    def delete_all(self) -> int:
+        """Delete every saved session file in the sessions folder and return how many."""
+        if not self.storage_dir.is_dir():
+            return 0
+        removed = 0
+        for session_path in self.storage_dir.glob("*.json"):
+            if session_path.is_file():
+                session_path.unlink()
+                removed += 1
+        return removed
 
     def _generate_id(self) -> str:
         return str(uuid.uuid4())
