@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import patch, MagicMock
 import io
+from pathlib import Path
 import sys
 import os
 
@@ -1580,7 +1581,7 @@ class TestCLIMCPTools(unittest.TestCase):
 
         _, register = self.run_cli(["exit"], manager)
 
-        register.assert_called_once_with(manager.close)
+        register.assert_any_call(manager.close)
 
 
 class TestCLIArtifactCommands(unittest.TestCase):
@@ -1731,6 +1732,36 @@ class TestArtifactSessionLifecycle(unittest.TestCase):
         self.assertTrue(self.artifact_manager.has_artifact())
         self.assertEqual(self.artifact_manager.artifact.title, "Living Spec")
         self.assertEqual(self.artifact_manager.artifact.sections.get("Architecture"), "Clean Architecture pattern.")
+
+    def test_exit_command_auto_saves_artifact(self):
+        from cli.commands.system import _dispatch_exit
+
+        self.artifact_manager.init_document("Exit Auto Save Doc")
+        self.artifact_manager.update_section("Notes", "Auto save content.")
+        self.conversation_session.add_message("user", "Hello before exit")
+
+        _dispatch_exit("exit", self.session, self.context)
+
+        artifact_file = os.path.join(self.temp_dir, f"{self.session_id}_artifact.md")
+        self.assertTrue(os.path.exists(artifact_file))
+        content = Path(artifact_file).read_text(encoding="utf-8")
+        self.assertIn("# Exit Auto Save Doc", content)
+        self.assertIn("Auto save content.", content)
+        self.assertTrue(self.session.exit_requested)
+
+    def test_slash_exit_command_auto_saves_artifact(self):
+        from cli.commands.system import _dispatch_exit
+
+        self.artifact_manager.init_document("Slash Exit Doc")
+        self.artifact_manager.update_section("Notes", "Slash exit content.")
+
+        _dispatch_exit("/exit", self.session, self.context)
+
+        artifact_file = os.path.join(self.temp_dir, f"{self.session_id}_artifact.md")
+        self.assertTrue(os.path.exists(artifact_file))
+        content = Path(artifact_file).read_text(encoding="utf-8")
+        self.assertIn("# Slash Exit Doc", content)
+        self.assertTrue(self.session.exit_requested)
 
 
 if __name__ == "__main__":

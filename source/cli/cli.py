@@ -210,6 +210,21 @@ def cli(
     for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
         print(f"Warning: {warning}")
     atexit.register(mcp_manager.close)
+
+    def _auto_save() -> None:
+        if feature_config.memory_enabled:
+            try:
+                conversation_session.save()
+            except Exception as error:
+                logger.warning("session.autosave_failed error=%s", error)
+            if artifact_manager and artifact_manager.has_artifact():
+                try:
+                    artifact_manager.session_id = conversation_session.session_id
+                    artifact_manager.save()
+                except Exception as error:
+                    logger.warning("artifact.autosave_failed error=%s", error)
+
+    atexit.register(_auto_save)
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -376,6 +391,12 @@ def cli(
             logger.info("cli.interrupted")
             if feature_config.memory_enabled:
                 conversation_session.save()
+                if artifact_manager and artifact_manager.has_artifact():
+                    try:
+                        artifact_manager.session_id = conversation_session.session_id
+                        artifact_manager.save()
+                    except Exception as error:
+                        logger.warning("artifact.save_failed error=%s", error)
             print("Exiting.")
             sys.exit(0)
 
