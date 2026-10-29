@@ -74,7 +74,7 @@ class OllamaHTTPClient:
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "llama3.2",
+        model: str = "qwen2.5:3b",
         options: Optional[Dict[str, Any]] = None,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     ):
