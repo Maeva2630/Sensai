@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import patch, MagicMock
 import io
+from pathlib import Path
 import sys
 import os
 
@@ -12,6 +13,7 @@ from cli.cli import CliDependencies, MAX_TOOL_ITERATIONS, _dispatch_command, cli
 from mcp.manager import MCPManager
 from config import AppConfig, FeatureConfig, PersonaConfig, PersonasConfig
 from cli.commands import GLOBAL_COMMANDS
+from cli.commands.artifact import ARTIFACT_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
@@ -20,6 +22,8 @@ from cli.commands.rag import (
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 # pyrefly: ignore [missing-import]
 from tools.base import Tool
+from memory.artifact_manager import ArtifactManager
+from memory.session_manager import SessionManager
 # pyrefly: ignore [missing-import]
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
@@ -1577,7 +1581,187 @@ class TestCLIMCPTools(unittest.TestCase):
 
         _, register = self.run_cli(["exit"], manager)
 
-        register.assert_called_once_with(manager.close)
+        register.assert_any_call(manager.close)
+
+
+class TestCLIArtifactCommands(unittest.TestCase):
+    """Tests for /artifact and /doc CLI commands."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from tools.permissions import AllowedDirectory, PermissionChecker
+
+        self.temp_dir = tempfile.mkdtemp()
+        self.root_path = Path(self.temp_dir).resolve()
+        self.export_dir = self.root_path / "exports"
+        self.export_dir.mkdir()
+        self.readonly_dir = self.root_path / "readonly"
+        self.readonly_dir.mkdir()
+
+        self.checker = PermissionChecker(
+            [
+                AllowedDirectory(self.export_dir, ("read", "write")),
+                AllowedDirectory(self.readonly_dir, ("read",)),
+            ],
+            base_dir=self.root_path,
+        )
+        self.artifact_manager = ArtifactManager(session_id="test_cli", storage_dir=self.temp_dir)
+        self.conversation_session = MagicMock()
+        self.context = CliCommandContext(
+            feature_config=FeatureConfig(),
+            rag_indexer=MagicMock(),
+            conversation_session=self.conversation_session,
+            artifact_manager=self.artifact_manager,
+            permission_checker=self.checker,
+        )
+        self.session = CliSession()
+        self.handler = ARTIFACT_COMMANDS[0].handler
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_artifact_view_empty(self):
+        self.handler("/artifact", self.session, self.context)
+        self.handler("/artifact view", self.session, self.context)
+
+    def test_artifact_init_and_outline(self):
+        self.handler("/artifact init Project X", self.session, self.context)
+        self.assertTrue(self.artifact_manager.has_artifact())
+        self.assertEqual(self.artifact_manager.artifact.title, "Project X")
+
+        self.artifact_manager.update_section("Section 1", "Content 1")
+        self.handler("/artifact outline", self.session, self.context)
+        self.assertIn("Section 1", self.artifact_manager.get_outline())
+
+    def test_artifact_export(self):
+        self.artifact_manager.init_document("Export Test")
+        self.artifact_manager.update_section("Overview", "Content to export.")
+
+        export_file = str(self.export_dir / "exported_doc.md")
+        self.handler(f"/artifact export {export_file}", self.session, self.context)
+
+        self.assertTrue(os.path.exists(export_file))
+        with open(export_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("# Export Test", content)
+        self.assertIn("Content to export.", content)
+
+    def test_artifact_export_with_spaces_in_quotes(self):
+        self.artifact_manager.init_document("Export Test")
+        self.artifact_manager.update_section("Overview", "Content to export.")
+
+        export_file = self.export_dir / "my notes.md"
+        self.handler(f'/artifact export "{export_file}"', self.session, self.context)
+
+        self.assertTrue(export_file.exists())
+        self.assertIn("Content to export.", export_file.read_text(encoding="utf-8"))
+
+    def test_artifact_export_permission_denied(self):
+        self.artifact_manager.init_document("Export Test")
+        readonly_file = self.readonly_dir / "doc.md"
+
+        self.handler(f"/artifact export {readonly_file}", self.session, self.context)
+        self.assertFalse(readonly_file.exists())
+
+    def test_artifact_export_without_overwrite_refuses(self):
+        self.artifact_manager.init_document("Export Test")
+        export_file = self.export_dir / "existing.md"
+        export_file.write_text("Original content", encoding="utf-8")
+
+        self.handler(f"/artifact export {export_file}", self.session, self.context)
+        self.assertEqual(export_file.read_text(encoding="utf-8"), "Original content")
+
+        self.handler(f"/artifact export {export_file} --overwrite", self.session, self.context)
+        self.assertIn("# Export Test", export_file.read_text(encoding="utf-8"))
+
+    def test_artifact_reset(self):
+        self.artifact_manager.init_document("To Reset")
+        self.assertTrue(self.artifact_manager.has_artifact())
+
+        self.handler("/artifact reset", self.session, self.context)
+        self.assertFalse(self.artifact_manager.has_artifact())
+
+
+class TestArtifactSessionLifecycle(unittest.TestCase):
+    """Tests for saving and restoring artifacts across session /save and /load."""
+
+    def setUp(self):
+        import tempfile
+        self.temp_dir = tempfile.mkdtemp()
+        self.session_id = "lifecycle_test_session"
+        self.conversation_session = SessionManager(session_id=self.session_id, storage_dir=self.temp_dir)
+        self.artifact_manager = ArtifactManager(session_id=self.session_id, storage_dir=self.temp_dir)
+        self.context = CliCommandContext(
+            feature_config=FeatureConfig(),
+            rag_indexer=MagicMock(),
+            conversation_session=self.conversation_session,
+            artifact_manager=self.artifact_manager,
+            messages=[],
+        )
+        self.session = CliSession()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_save_and_load_session_with_artifact(self):
+        from cli.commands.memory import _dispatch_save, _dispatch_load
+
+        # 1. Initialize artifact and add content
+        self.artifact_manager.init_document("Living Spec")
+        self.artifact_manager.update_section("Architecture", "Clean Architecture pattern.")
+
+        # 2. Add message and save session
+        self.conversation_session.add_message("user", "Hello")
+        _dispatch_save("/save", self.session, self.context)
+
+        # Verify artifact file exists on disk
+        artifact_file = os.path.join(self.temp_dir, f"{self.session_id}_artifact.md")
+        self.assertTrue(os.path.exists(artifact_file))
+
+        # 3. Reset in-memory artifact to simulate new session
+        self.artifact_manager.reset()
+        self.assertFalse(self.artifact_manager.has_artifact())
+
+        # 4. Load session back
+        _dispatch_load(f"/load {self.session_id}", self.session, self.context)
+
+        # 5. Verify artifact is restored
+        self.assertTrue(self.artifact_manager.has_artifact())
+        self.assertEqual(self.artifact_manager.artifact.title, "Living Spec")
+        self.assertEqual(self.artifact_manager.artifact.sections.get("Architecture"), "Clean Architecture pattern.")
+
+    def test_exit_command_auto_saves_artifact(self):
+        from cli.commands.system import _dispatch_exit
+
+        self.artifact_manager.init_document("Exit Auto Save Doc")
+        self.artifact_manager.update_section("Notes", "Auto save content.")
+        self.conversation_session.add_message("user", "Hello before exit")
+
+        _dispatch_exit("exit", self.session, self.context)
+
+        artifact_file = os.path.join(self.temp_dir, f"{self.session_id}_artifact.md")
+        self.assertTrue(os.path.exists(artifact_file))
+        content = Path(artifact_file).read_text(encoding="utf-8")
+        self.assertIn("# Exit Auto Save Doc", content)
+        self.assertIn("Auto save content.", content)
+        self.assertTrue(self.session.exit_requested)
+
+    def test_slash_exit_command_auto_saves_artifact(self):
+        from cli.commands.system import _dispatch_exit
+
+        self.artifact_manager.init_document("Slash Exit Doc")
+        self.artifact_manager.update_section("Notes", "Slash exit content.")
+
+        _dispatch_exit("/exit", self.session, self.context)
+
+        artifact_file = os.path.join(self.temp_dir, f"{self.session_id}_artifact.md")
+        self.assertTrue(os.path.exists(artifact_file))
+        content = Path(artifact_file).read_text(encoding="utf-8")
+        self.assertIn("# Slash Exit Doc", content)
+        self.assertTrue(self.session.exit_requested)
 
 
 if __name__ == "__main__":

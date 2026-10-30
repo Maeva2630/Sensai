@@ -15,11 +15,18 @@ def _dispatch_save(
     _session: CliSession,
     context: CliCommandContext,
 ) -> None:
-    """Persist the current conversation without leaving the CLI."""
+    """Persist the current conversation and active artifact without leaving the CLI."""
     if not context.feature_config.memory_enabled:
         print("Memory is disabled in config.json.")
         return
     context.conversation_session.save()
+    if context.artifact_manager and context.artifact_manager.has_artifact():
+        try:
+            context.artifact_manager.session_id = context.conversation_session.session_id
+            saved_artifact_path = context.artifact_manager.save()
+            print(f"Artifact saved at {saved_artifact_path}")
+        except Exception as error:
+            logger.warning("artifact.save_failed error=%s", error)
 
 
 def _dispatch_load(
@@ -50,6 +57,15 @@ def _dispatch_load(
     context.messages[:] = [*system_prefix, *history]
     session.last_request_messages = None
     session.last_rag_context = None
+
+    if context.artifact_manager:
+        context.artifact_manager.session_id = session_id
+        try:
+            context.artifact_manager.load()
+            print(f"Artifact for session {session_id} loaded.")
+        except FileNotFoundError:
+            context.artifact_manager.reset()
+
     print(f"Session {session_id} loaded.")
 
 def _dispatch_forget(

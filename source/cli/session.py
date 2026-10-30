@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from config import FeatureConfig, PersonasConfig
+from memory.artifact_manager import ArtifactManager
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from observability.monitoring import DisabledMonitoringStore, MonitoringStore
@@ -100,6 +101,7 @@ class CliCommandContext:
     monitoring_store: MonitoringStore | DisabledMonitoringStore | None = None
     personas: PersonasConfig = PersonasConfig()
     profile_manager: ProfileManager | None = None
+    artifact_manager: ArtifactManager | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
     chat_client: OllamaHTTPClient | None = None
     rag_context_provider: Any = None
