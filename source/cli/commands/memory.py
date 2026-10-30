@@ -1,6 +1,7 @@
 """CLI commands owned by the conversation-memory feature."""
 
 from cli.error_handling import report_cli_error
+from cli.terminal import ask_confirmation
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 from observability.app_logging import get_logger
 from memory.compression import compress_history, is_summary_message
@@ -44,7 +45,7 @@ def _dispatch_load(
     session_id = arguments[0].strip()
     try:
         loaded = context.conversation_session.load(session_id)
-    except FileNotFoundError as error:
+    except (FileNotFoundError, ValueError) as error:
         report_cli_error(error, logger)
         return
     system_prefix = (
@@ -66,6 +67,36 @@ def _dispatch_load(
             context.artifact_manager.reset()
 
     print(f"Session {session_id} loaded.")
+
+def _dispatch_forget(
+    user_input: str,
+    session: CliSession,
+    context: CliCommandContext,
+) -> None:
+    """Erase conversation data: this session, or every saved session with `/forget all`."""
+    _, *arguments = user_input.split()
+    if arguments not in ([], ["all"]):
+        print("Usage: /forget [all]")
+        return
+    if arguments:
+        if not ask_confirmation("Delete ALL saved sessions? This cannot be undone."):
+            print("Nothing deleted.")
+            return
+        print(f"Deleted {context.conversation_session.delete_all()} saved session(s).")
+    else:
+        deleted = context.conversation_session.delete()
+        print("Saved copy of this session deleted." if deleted else "This session had no saved copy.")
+    system_prefix = (
+        [context.messages[0]]
+        if context.messages and context.messages[0].get("role") == "system"
+        else []
+    )
+    context.messages[:] = system_prefix
+    context.conversation_session.clear()
+    session.last_request_messages = None
+    session.last_rag_context = None
+    print("The current conversation was cleared from memory.")
+
 
 def _dispatch_tokens(
     user_input: str,
@@ -144,6 +175,13 @@ MEMORY_COMMANDS: tuple[CommandDefinition, ...] = (
         description="Load a saved conversation by its identifier.",
         feature="Memory",
         handler=_dispatch_load,
+    ),
+    CommandDefinition(
+        name="/forget",
+        usage="/forget [all]",
+        description="Delete this session's saved copy and clear it, or every saved session with 'all'.",
+        feature="Memory",
+        handler=_dispatch_forget,
     ),
     CommandDefinition(
         name="/tokens",

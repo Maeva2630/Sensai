@@ -35,6 +35,8 @@ class FeatureConfig:
     tools_enabled: bool = True
     memory_enabled: bool = True
     source_display_enabled: bool = True
+    # Web search and MCP servers marked `network` stay off unless this is true.
+    network_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -240,6 +242,7 @@ def _read_features(section: Mapping[str, Any]) -> FeatureConfig:
         tools_enabled=_boolean(section, "tools_enabled"),
         memory_enabled=_boolean(section, "memory_enabled"),
         source_display_enabled=_boolean(section, "source_display_enabled"),
+        network_enabled=_boolean(section, "network_enabled") if "network_enabled" in section else False,
     )
 
 

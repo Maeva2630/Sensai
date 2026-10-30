@@ -8,6 +8,26 @@ from typing import Any, Dict, List, Optional
 PROTOCOL_VERSION = "2024-11-05"
 CLIENT_INFO = {"name": "sensai", "version": "0.1.0"}
 
+# Variables a server needs to start and reach the network. Everything else (API keys,
+# tokens, credentials in the user's environment) is not handed to third-party servers;
+# a server that needs one gets it explicitly through the `env` field of its config.
+_SAFE_ENV_NAMES = {
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TERM", "TMPDIR", "TEMP", "TMP",
+    "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PATHEXT", "COMSPEC",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "PYTHONPATH",
+}
+_SAFE_ENV_PREFIXES = ("LC_", "XDG_", "UV_")
+
+
+def safe_environment(environ: Dict[str, str]) -> Dict[str, str]:
+    """Keep only the variables a server needs to run, and drop the rest."""
+    return {
+        name: value
+        for name, value in environ.items()
+        if name.upper() in _SAFE_ENV_NAMES or name.upper().startswith(_SAFE_ENV_PREFIXES)
+    }
+
 
 class MCPError(Exception):
     """Base exception for all MCP client errors."""
@@ -55,7 +75,7 @@ class MCPClient:
 
     def start(self) -> None:
         """Launch the server and perform the MCP initialization handshake."""
-        env = {**os.environ, **self.env} if self.env else None
+        env = {**safe_environment(os.environ), **(self.env or {})}
         try:
             self._process = subprocess.Popen(
                 [self.command, *self.args],

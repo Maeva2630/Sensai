@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from config import ConfigurationError
+from memory.session_manager import InvalidSessionIdError
 from rag.embeddings import EmbeddingError
 from rag.ingestion import DocumentIngestionError
 from rag.storage import VectorStoreError
@@ -36,6 +37,11 @@ _ERROR_RULES: tuple[ErrorRule, ...] = (
     (EmbeddingError, "rag_embedding", "RAG error: unable to generate document embeddings. Please try again."),
     (VectorStoreError, "rag_storage", "RAG error: the local knowledge base is unavailable. Please try again."),
     (ConfigurationError, "configuration", "Configuration error: check config.json and restart SensAI."),
+    (
+        InvalidSessionIdError,
+        "session_id",
+        "Session error: a session id may only contain letters, digits, '-' and '_' (64 characters at most).",
+    ),
     (FileNotFoundError, "file_not_found", "File error: the requested file or session could not be found."),
     (OSError, "file_system", "File error: SensAI could not access a required local file."),
 )

@@ -11,7 +11,8 @@
     "rag_enabled": true,
     "tools_enabled": true,
     "memory_enabled": true,
-    "source_display_enabled": true
+    "source_display_enabled": true,
+    "network_enabled": false
   },
   "rag": {
     "top_k": 3,

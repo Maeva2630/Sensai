@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from memory.private_files import write_private_json
 from personas.teacher_assistant import TEACHER_ASSISTANT_BASE_PROMPT
 
 
@@ -29,8 +30,7 @@ class ProfileManager:
 
     def save(self, data: dict) -> None:
         """Save the profile to a JSON file."""
-        with open(self.profile_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        write_private_json(self.profile_path, data)
         self.data = data
 
     def build_system_prompt(self, base_instructions: str = TEACHER_ASSISTANT_BASE_PROMPT) -> str:

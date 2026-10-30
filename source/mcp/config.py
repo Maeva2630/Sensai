@@ -17,6 +17,8 @@ class MCPServerConfig:
     args: List[str] = field(default_factory=list)
     env: Dict[str, str] = field(default_factory=dict)
     timeout: float = DEFAULT_TIMEOUT
+    # True for servers that reach the internet; they start only when network access is enabled.
+    network: bool = False
 
 
 def load_mcp_config(path: str = DEFAULT_CONFIG_PATH) -> Tuple[List[MCPServerConfig], List[str]]:
@@ -75,4 +77,8 @@ def _parse_server(name: str, entry: Any) -> Tuple[Any, str]:
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
         return None, "'timeout' must be a positive number"
 
-    return MCPServerConfig(name, command, args, env, float(timeout)), ""
+    network = entry.get("network", False)
+    if not isinstance(network, bool):
+        return None, "'network' must be true or false"
+
+    return MCPServerConfig(name, command, args, env, float(timeout), network), ""
