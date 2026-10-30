@@ -1,5 +1,6 @@
 """Feature-specific command registries combined for the interactive CLI."""
 
+from cli.commands.artifact import ARTIFACT_COMMANDS
 from cli.commands.debug import DEBUG_COMMANDS
 from cli.commands.help import HELP_COMMANDS
 from cli.commands.memory import MEMORY_COMMANDS
@@ -21,4 +22,5 @@ GLOBAL_COMMANDS: tuple[CommandDefinition, ...] = (
     *RAG_COMMANDS,
     *TOOL_COMMANDS,
     *MEMORY_COMMANDS,
+    *ARTIFACT_COMMANDS,
 )

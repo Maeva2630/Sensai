@@ -19,6 +19,7 @@ from memory.compression import (
     compress_history,
     is_summary_message,
 )
+from memory.artifact_manager import ArtifactManager
 from memory.profile_manager import ProfileManager
 from memory.session_manager import SessionManager
 from observability.app_logging import get_logger
@@ -35,6 +36,7 @@ from rag.storage import VectorStoreError
 from tools.filesystem import filesystem_tools
 from tools.permissions import PermissionChecker, load_permissions
 from tools.quiz_export import QuizStore, SaveLastQuizTool
+from tools.artifact_tool import ArtifactTool
 from tools.registry import ToolRegistry
 from tools.time_tool import GetTimeTool
 from utilities.ollama_client import (
@@ -69,10 +71,13 @@ def default_registry(
     enabled: bool = True,
     permission_checker: PermissionChecker | None = None,
     quiz_store: QuizStore | None = None,
+    artifact_manager: ArtifactManager | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     if enabled:
         registry.register(GetTimeTool())
+        if artifact_manager is not None:
+            registry.register(ArtifactTool(artifact_manager))
         if permission_checker is not None:
             for tool in filesystem_tools(permission_checker):
                 registry.register(tool)
@@ -194,6 +199,13 @@ def cli(
         context_window=model_config.context_window,
     )
 
+    artifact_manager = ArtifactManager(session_id=conversation_session.session_id)
+    if session_id:
+        try:
+            artifact_manager.load()
+            logger.info("artifact.loaded_at_startup session_id=%s", session_id)
+        except FileNotFoundError:
+            pass
     quiz_store = QuizStore()
     permission_checker, permission_warnings = load_permissions()
     for warning in permission_warnings:
@@ -201,12 +213,27 @@ def cli(
     registry = (
         dependencies.registry
         if dependencies.registry is not None
-        else default_registry(feature_config.tools_enabled, permission_checker, quiz_store)
+        else default_registry(feature_config.tools_enabled, permission_checker, quiz_store, artifact_manager)
     )
     mcp_manager = mcp_manager if mcp_manager is not None else MCPManager.from_config_file()
     for warning in mcp_manager.start() + mcp_manager.register_tools(registry):
         print(f"Warning: {warning}")
     atexit.register(mcp_manager.close)
+
+    def _auto_save() -> None:
+        if feature_config.memory_enabled:
+            try:
+                conversation_session.save()
+            except Exception as error:
+                logger.warning("session.autosave_failed error=%s", error)
+            if artifact_manager and artifact_manager.has_artifact():
+                try:
+                    artifact_manager.session_id = conversation_session.session_id
+                    artifact_manager.save()
+                except Exception as error:
+                    logger.warning("artifact.autosave_failed error=%s", error)
+
+    atexit.register(_auto_save)
     runtime = create_model_runtime(
         model_config,
         rag_config,
@@ -224,7 +251,8 @@ def cli(
         _create_monitoring_store(app_config),
         app_config.personas,
         profile_manager,
-        messages,
+        artifact_manager=artifact_manager,
+        messages=messages,
         chat_client=runtime.chat_client,
         rag_context_provider=runtime.rag_context_provider,
         permission_checker=permission_checker,
@@ -373,6 +401,12 @@ def cli(
             logger.info("cli.interrupted")
             if feature_config.memory_enabled:
                 conversation_session.save()
+                if artifact_manager and artifact_manager.has_artifact():
+                    try:
+                        artifact_manager.session_id = conversation_session.session_id
+                        artifact_manager.save()
+                    except Exception as error:
+                        logger.warning("artifact.save_failed error=%s", error)
             print("Exiting.")
             sys.exit(0)
 
