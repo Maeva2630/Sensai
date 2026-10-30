@@ -9,6 +9,7 @@ RAM plus NVIDIA VRAM when `nvidia-smi` is available.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import platform
 import subprocess
@@ -313,24 +314,67 @@ def _load_prompts(path: Path) -> dict[str, Any]:
 def _write_results(results_dir: Path, model: str, result: dict[str, Any]) -> Path:
     results_dir.mkdir(parents=True, exist_ok=True)
     safe_model = model.replace(":", "-").replace("/", "-")
-    path = results_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{safe_model}.json"
+    label = result["configuration"].get("label")
+    safe_label = f"-{str(label).replace(':', '-').replace('/', '-')}" if label else ""
+    path = results_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{safe_model}{safe_label}.json"
     path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path
 
 
 def _print_summary(result: dict[str, Any]) -> None:
+    configuration = result["configuration"]
     print(f"Model: {result['model']}")
     print(f"Prompt set: {result['prompt_set_version']}")
+    print(
+        "Configuration: "
+        f"temperature={configuration['temperature']}, "
+        f"context_window={configuration['context_window']}, "
+        f"rag_enabled={configuration['enabled_features']['rag']}, "
+        f"tools_enabled={configuration['enabled_features']['tools']}, "
+        f"memory_enabled={configuration['enabled_features']['memory']}, "
+        f"prompt_version={configuration['prompt_version']}"
+    )
     for run in result["runs"]:
         metrics = run["ollama"]
         resources = run["resources"]
         print(
-            f"- {run['case_id']}: total={run['wall_total_latency_ms']:.1f} ms, "
-            f"output={metrics['output_tokens_per_second'] or 0:.2f} tok/s, "
-            f"GPU peak={resources.get('gpu_memory_peak_mib')} MiB, "
-            f"Ollama RSS peak={resources.get('ollama_rss_peak_mib')} MiB, "
+            f"- {run['case_id']}: "
+            f"first_text={_format_measurement(run['first_text_token_latency_ms'], 'ms')}, "
+            f"first_event={_format_measurement(run['first_response_event_latency_ms'], 'ms')}, "
+            f"total={_format_measurement(run['wall_total_latency_ms'], 'ms')}, "
+            f"input={_format_measurement(metrics['input_tokens_per_second'], 'tok/s')}, "
+            f"output={_format_measurement(metrics['output_tokens_per_second'], 'tok/s')}, "
+            f"RAM RSS peak={_format_measurement(resources.get('ollama_rss_peak_mib'), 'MiB')}, "
+            f"VRAM peak={_format_measurement(resources.get('gpu_memory_peak_mib'), 'MiB')}, "
             f"tool_call={run['tool_call_requested']}"
         )
+
+
+def _format_measurement(value: float | int | None, unit: str) -> str:
+    """Format a measured value without substituting an unavailable metric."""
+    if value is None:
+        return "unavailable"
+    return f"{float(value):.2f} {unit}"
+
+
+def _configured_cases(cases: list[dict[str, Any]], rag_enabled: bool) -> list[dict[str, Any]]:
+    """Build the RAG-disabled variant without changing the fixed source prompt file."""
+    configured_cases = copy.deepcopy(cases)
+    if rag_enabled:
+        return configured_cases
+    for case in configured_cases:
+        if case.get("id") != "rag_context_compliance":
+            continue
+        messages = case.get("messages", [])
+        if messages and messages[0].get("role") == "system":
+            system_message = str(messages[0].get("content", ""))
+            messages[0]["content"] = system_message.split("\n\nRAG CONTEXT", maxsplit=1)[0]
+            messages[0]["content"] += (
+                "\n\nNo RAG context is available for this request. "
+                "Reply in one French sentence that the answer is absent from the indexed documents."
+            )
+        case["purpose"] = "Response without injected RAG context"
+    return configured_cases
 
 
 def main() -> None:
@@ -341,22 +385,56 @@ def main() -> None:
     parser.add_argument("--prompts", type=Path, default=DEFAULT_PROMPTS, help="Prompt-set JSON file")
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR, help="Directory for generated JSON results")
     parser.add_argument("--cold-run", action="store_true", help="Label the first run as cold after you manually ran 'ollama stop <model>'")
+    parser.add_argument(
+        "--warmup",
+        action="store_true",
+        help="Run the first prompt once without recording it, so measured runs start after model loading",
+    )
+    parser.add_argument("--temperature", type=float, help="Override the prompt-set temperature (0 to 2)")
+    parser.add_argument("--context-window", type=int, help="Override the prompt-set context window (at least 512)")
+    parser.add_argument("--rag", choices=("enabled", "disabled"), default="enabled", help="Include or remove the fixed RAG context case")
+    parser.add_argument("--prompt-version", help="Label saved beside measurements (default: benchmark prompt-set version)")
+    parser.add_argument("--label", help="Optional comparison label appended to the result filename")
     arguments = parser.parse_args()
     if arguments.runs < 1:
         raise SystemExit("--runs must be at least 1")
+    if arguments.temperature is not None and not 0.0 <= arguments.temperature <= 2.0:
+        raise SystemExit("--temperature must be between 0 and 2")
+    if arguments.context_window is not None and arguments.context_window < 512:
+        raise SystemExit("--context-window must be at least 512")
+    if arguments.cold_run and arguments.warmup:
+        raise SystemExit("--cold-run and --warmup cannot be used together")
 
     prompt_set = _load_prompts(arguments.prompts)
+    protocol = dict(prompt_set["protocol"])
+    if arguments.temperature is not None:
+        protocol["temperature"] = arguments.temperature
+    if arguments.context_window is not None:
+        protocol["num_ctx"] = arguments.context_window
+    rag_enabled = arguments.rag == "enabled"
+    cases = _configured_cases(prompt_set["cases"], rag_enabled)
+    if arguments.warmup:
+        print(f"Warming up {arguments.model} (not recorded)...", flush=True)
+        _run_case(arguments.base_url, arguments.model, cases[0], protocol)
     result: dict[str, Any] = {
         "model": arguments.model,
         "prompt_set_version": prompt_set["version"],
-        "protocol": prompt_set["protocol"],
+        "protocol": protocol,
+        "configuration": {
+            "label": arguments.label,
+            "model": arguments.model,
+            "temperature": protocol["temperature"],
+            "context_window": protocol["num_ctx"],
+            "enabled_features": {"rag": rag_enabled, "tools": True, "memory": False},
+            "prompt_version": arguments.prompt_version or prompt_set["version"],
+        },
         "environment": _environment(),
         "runs": [],
     }
     for repetition in range(arguments.runs):
-        for case_index, case in enumerate(prompt_set["cases"]):
+        for case_index, case in enumerate(cases):
             print(f"Running {arguments.model}: {case['id']} ({repetition + 1}/{arguments.runs})...", flush=True)
-            run = _run_case(arguments.base_url, arguments.model, case, prompt_set["protocol"])
+            run = _run_case(arguments.base_url, arguments.model, case, protocol)
             run["repetition"] = repetition + 1
             run["cold_run"] = arguments.cold_run and repetition == 0 and case_index == 0
             result["runs"].append(run)
@@ -367,4 +445,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise SystemExit("Benchmark interrupted.") from None
+    except RuntimeError as error:
+        raise SystemExit(f"Benchmark failed: {error}") from error

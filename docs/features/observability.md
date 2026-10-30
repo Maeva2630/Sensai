@@ -102,3 +102,8 @@ model calls with at least one retrieved chunk, not all attempted searches. Token
 are estimates, not billing-grade usage. The local metrics store does not persist raw
 prompts, document excerpts, responses, tool arguments, or profile content by default.
 Even metadata can be sensitive: protect the local database and review it before sharing.
+
+For measured output tokens per second, first-token latency, process RAM, VRAM, and
+configuration comparisons, use the [local model benchmark protocol](../model-benchmarks.md).
+Unlike `/metrics`, its token throughput comes from Ollama's reported generation counts
+and durations rather than SensAI's character-based estimate.
