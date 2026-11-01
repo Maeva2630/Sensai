@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 # Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, cli
@@ -16,6 +17,8 @@ from cli.cli import CliDependencies, cli
 from cli.commands.tools import QuizRequest, QuizUsageError, _parse_quiz_arguments
 # pyrefly: ignore [missing-import]
 from mcp.manager import MCPManager
+# pyrefly: ignore [missing-import]
+from support import use_temporary_working_directory_for_module
 # pyrefly: ignore [missing-import]
 from tools.base import ToolError
 # pyrefly: ignore [missing-import]
@@ -27,7 +30,7 @@ from tools.registry import ToolRegistry
 # pyrefly: ignore [missing-import]
 from cli.cli import default_registry
 # pyrefly: ignore [missing-import]
-from tools.structured_output import format_quiz
+from tools.structured_output import ANSWER_KEY_NOTE, format_quiz
 
 
 def setUpModule():
@@ -35,6 +38,8 @@ def setUpModule():
     patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
     patcher.start()
     unittest.addModuleCleanup(patcher.stop)
+    # cli() saves sessions/, profile.json and data/ in the current directory: not in the repository.
+    use_temporary_working_directory_for_module()
 
 
 QUIZ = {
@@ -87,6 +92,21 @@ class TestRenderQuiz(unittest.TestCase):
 
     def test_accents_are_kept(self):
         self.assertIn("éruption", render_quiz(QUIZ, Path("quiz.json")))
+
+    def test_text_export_reminds_to_check_the_key_but_json_data_does_not(self):
+        self.assertIn(ANSWER_KEY_NOTE, render_quiz(QUIZ, Path("quiz.md")))
+        self.assertNotIn(ANSWER_KEY_NOTE, render_quiz(QUIZ, Path("eleves.md"), answers=False))
+        self.assertNotIn(ANSWER_KEY_NOTE, render_quiz(QUIZ, Path("quiz.json")))
+
+    def test_labels_written_by_the_model_are_removed_from_every_export(self):
+        labelled = {**QUIZ, "questions": [{**QUIZ["questions"][0], "choices": ["A) La lave", "B) La cendre"]}]}
+
+        text = render_quiz(labelled, Path("quiz.md"))
+        data = json.loads(render_quiz(labelled, Path("quiz.json")))
+
+        self.assertIn("   A) La lave", text)
+        self.assertNotIn("A) A)", text)
+        self.assertEqual(data["questions"][0]["choices"], ["La lave", "La cendre"])
 
 
 class TestSaveQuiz(ExportTestCase):
@@ -275,7 +295,10 @@ class TestQuizCommand(ExportTestCase):
 
         self.assertIn("1. Comment s'appelle le magma en surface ?", output)
         self.assertIn("Quiz saved to 'exports/volcans.md'", output)
-        self.assertIn("Answer key:", (self.root / "exports" / "volcans.md").read_text(encoding="utf-8"))
+        saved = (self.root / "exports" / "volcans.md").read_text(encoding="utf-8")
+        self.assertIn("Answer key:", saved)
+        self.assertIn(ANSWER_KEY_NOTE, saved)
+        self.assertIn(ANSWER_KEY_NOTE, output)
 
     def test_student_copy(self):
         output, _ = self.run_cli(["/quiz --questions 2 --save exports/eleves.md --no-answers volcans"])
