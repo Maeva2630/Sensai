@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import tempfile
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 # pyrefly: ignore [missing-import]
 from cli.cli import default_registry
 # pyrefly: ignore [missing-import]
+from cli.tool_calls import run_tool_calls
 from tools.filesystem import (
     MAX_LISTED_ENTRIES,
     MAX_READ_BYTES,
@@ -238,10 +240,14 @@ class TestToolRouting(FilesystemTestCase):
 
     def test_file_tools_are_offered_only_for_file_requests(self):
         for text in ["Lis le fichier courses/notes.csv", "Exporte le quiz", "Write the result in a file",
-                     "Enregistre ce résumé", "Liste le dossier courses", "Save this", "Écris un résumé"]:
+                     "Enregistre le quiz dans exports/", "Liste le dossier courses", "Read fractions.md"]:
             with self.subTest(text=text):
                 self.assertEqual(len(self.registry.to_ollama_tools(text)), 4)
-        for text in ["What is 17 + 25?", "Explique le théorème de Pythagore", "Quelle heure est-il ?", "I already know"]:
+        # Verbs alone ("write", "save", "écris") also describe ordinary teaching requests,
+        # and a fraction or "et/ou" is not a path.
+        for text in ["What is 17 + 25?", "Explique le théorème de Pythagore", "Quelle heure est-il ?", "I already know",
+                     "Help me write a lesson plan on fractions", "Save time: give me 3 warm-ups",
+                     "Écris un résumé", "Calcule 3/4 + 2/5", "Travail seul et/ou en binôme"]:
             with self.subTest(text=text):
                 self.assertEqual(self.registry.to_ollama_tools(text), [])
 
@@ -260,6 +266,55 @@ class TestDefaultRegistry(FilesystemTestCase):
     def test_no_filesystem_tools_without_a_checker_or_when_tools_are_disabled(self):
         self.assertEqual([tool.name for tool in default_registry(True).list_tools()], ["get_time"])
         self.assertEqual(default_registry(False, self.checker).list_tools(), [])
+
+
+class TestWriteConfirmation(FilesystemTestCase):
+    """A write asked by the model is shown to the teacher first (a read document can push for it)."""
+
+    def calls(self, arguments):
+        return [{"function": {"name": "write_file", "arguments": arguments}}]
+
+    def test_the_question_shows_path_size_overwrite_and_start_of_text(self):
+        question = self.registry.get("write_file").confirmation_prompt(
+            {"path": "exports/evaluation.md", "content": "Nouvelle\névaluation", "overwrite": True}
+        )
+
+        self.assertIn("'exports/evaluation.md'", question)
+        self.assertIn("19 characters", question)
+        self.assertIn("REPLACES the existing file", question)
+        self.assertIn('"Nouvelle évaluation"', question)
+
+    def test_a_refused_write_changes_nothing(self):
+        target = self.root / "exports" / "evaluation.md"
+        target.write_text("original", encoding="utf-8")
+        messages = []
+        with patch("sys.stdout", io.StringIO()):
+            run_tool_calls(
+                self.registry,
+                self.calls({"path": str(target), "content": "pirate", "overwrite": True}),
+                messages,
+                confirm=lambda _question: False,
+            )
+
+        self.assertEqual(target.read_text(encoding="utf-8"), "original")
+        self.assertIn("declined", messages[0]["content"])
+
+    def test_without_a_confirmation_channel_the_write_is_refused(self):
+        with patch("sys.stdout", io.StringIO()):
+            run_tool_calls(self.registry, self.calls({"path": str(self.root / "exports" / "a.md"), "content": "x"}), [])
+
+        self.assertFalse((self.root / "exports" / "a.md").exists())
+
+    def test_an_accepted_write_is_performed(self):
+        with patch("sys.stdout", io.StringIO()):
+            run_tool_calls(
+                self.registry,
+                self.calls({"path": str(self.root / "exports" / "a.md"), "content": "ok"}),
+                [],
+                confirm=lambda _question: True,
+            )
+
+        self.assertEqual((self.root / "exports" / "a.md").read_text(encoding="utf-8"), "ok")
 
 
 if __name__ == "__main__":

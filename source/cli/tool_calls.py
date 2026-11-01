@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from observability.monitoring import DisabledMonitoringStore, MonitoringStore
 from tools.registry import ToolRegistry, ToolResult
-from tools.safety import mark_untrusted
+from tools.safety import mark_untrusted, printable
 from utilities.ollama_client import build_tool_message, parse_tool_calls
 from observability.app_logging import get_logger
 
@@ -34,7 +34,7 @@ def run_tool_calls(
     """
     for call in parse_tool_calls({"tool_calls": raw_tool_calls}):
         logger.info("tool.requested name=%s", call["name"])
-        emit(f"[tool] {call['name']}({json.dumps(call['arguments'])})")
+        emit(printable(f"[tool] {call['name']}({json.dumps(call['arguments'], ensure_ascii=False)})"))
         started_at = perf_counter()
         tool = registry.get(call["name"])
         question = _confirmation_question(tool, call["arguments"])
@@ -60,8 +60,11 @@ def run_tool_calls(
             except (OSError, sqlite3.Error) as error:
                 # Observability is best effort and must never block a tool result.
                 logger.warning("monitoring.tool_write_failed error_type=%s", type(error).__name__)
-        emit(f"[tool] {label}: {result.content}")
-        content = mark_untrusted(call["name"], result.content) if tool is not None and tool.untrusted else result.content
+        # Escape sequences are removed from what the teacher sees and from what the model
+        # reads, so a file cannot hide instructions from the terminal.
+        shown = printable(result.content)
+        emit(f"[tool] {label}: {shown}")
+        content = mark_untrusted(call["name"], shown) if tool is not None and tool.untrusted else shown
         messages.append(build_tool_message(call["name"], content))
 
 

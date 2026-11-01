@@ -9,10 +9,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cli.cli import CliDependencies, cli
 from mcp.manager import MCPManager
 from rag.context import RAGContextProvider, RAGIndexer
+from support import use_temporary_working_directory_for_module
 from rag.embeddings import EmbeddingConfig, EmbeddingGenerator
 from rag.storage import LocalVectorStore
 
@@ -22,6 +24,8 @@ def setUpModule():
     patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
     patcher.start()
     unittest.addModuleCleanup(patcher.stop)
+    # cli() saves its session under the working directory.
+    use_temporary_working_directory_for_module()
 
 
 class TestRAGIntegration(unittest.TestCase):
@@ -68,10 +72,17 @@ class TestRAGIntegration(unittest.TestCase):
         self.assertEqual(indexing_result.inserted_chunk_count, 1)
         self.assertEqual(embedding_client.get_embedding.call_count, 2)
         request_messages = chat_client.stream_message.call_args.args[0]
+        # SensAI's rules are a system message; the document text travels in the user's
+        # turn, framed as data, next to the question.
         self.assertEqual(request_messages[1]["role"], "system")
-        self.assertIn("Source: storage.md", request_messages[1]["content"])
-        self.assertIn("Embeddings are stored locally in a SQLite database.", request_messages[1]["content"])
-        self.assertEqual(request_messages[-1], {"role": "user", "content": "Where are embeddings stored?"})
+        self.assertNotIn("Embeddings are stored locally in a SQLite database.", request_messages[1]["content"])
+        question = request_messages[-1]
+        self.assertEqual(question["role"], "user")
+        self.assertIn("Source: storage.md", question["content"])
+        self.assertIn("Embeddings are stored locally in a SQLite database.", question["content"])
+        self.assertTrue(question["content"].startswith("<<<DOCUMENT EXCERPTS>>>"))
+        self.assertIn("Question: Where are embeddings stored?", question["content"])
+        self.assertIn("Reminder from SensAI", question["content"])
         self.assertIn("Assistant: Embeddings are stored in SQLite.", captured_output.getvalue())
         self.assertIn("Sources: storage.md", captured_output.getvalue())
 

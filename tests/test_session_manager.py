@@ -1,8 +1,10 @@
+import io
 import json
 import os
-import shutil
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 # Ensure `source` directory is in python path
@@ -57,16 +59,19 @@ class TestSessionManagerMessages(unittest.TestCase):
         self.assertEqual(self.session.messages, [])
 
 
-class TestSessionManagerSave(unittest.TestCase):
+class TemporaryFolderCase(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.tmp_dir = Path(folder.name)
+
+
+class TestSessionManagerSave(TemporaryFolderCase):
     """Tests for session save to disk."""
 
     def setUp(self):
-        self.tmp_dir = Path("/tmp/sensai_test_sessions")
-        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        super().setUp()
         self.session = SessionManager(session_id="test-save-id", storage_dir=str(self.tmp_dir))
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_save_creates_json_file(self):
         self.session.add_message("user", "Hello")
@@ -74,9 +79,32 @@ class TestSessionManagerSave(unittest.TestCase):
         self.assertTrue(Path(path).exists())
 
     def test_save_returns_correct_path(self):
+        self.session.add_message("user", "Hello")
         path = self.session.save()
         self.assertIn("test-save-id", path)
         self.assertTrue(path.endswith(".json"))
+
+    def test_empty_conversation_is_not_written(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            path = self.session.save()
+
+        self.assertIsNone(path)
+        self.assertEqual(list(self.tmp_dir.iterdir()), [])
+        self.assertEqual(output.getvalue(), "")
+
+    def test_cleared_conversation_is_not_written_back(self):
+        """After /forget the messages are cleared: exiting must not re-create the file."""
+        self.session.add_message("user", "Tom has a PAP")
+        path = Path(self.session.save())
+        self.session.delete()
+        self.session.clear()
+
+        self.assertIsNone(self.session.save())
+        self.assertFalse(path.exists())
+
+        self.session.add_message("user", "A new question")
+        self.assertEqual(self.session.save(), str(path))
 
     def test_save_file_contains_correct_structure(self):
         self.session.add_message("user", "Hello")
@@ -94,19 +122,28 @@ class TestSessionManagerSave(unittest.TestCase):
     def test_save_creates_storage_dir_if_missing(self):
         new_dir = self.tmp_dir / "subdir"
         session = SessionManager(session_id="sub-id", storage_dir=str(new_dir))
+        session.add_message("user", "Hello")
         session.save()
         self.assertTrue(new_dir.exists())
 
 
-class TestSessionManagerLoad(unittest.TestCase):
+class TestSessionManagerFiles(TemporaryFolderCase):
+    """Session files are told apart from the artifact files saved in the same folder."""
+
+    def test_artifact_files_are_not_listed_or_deleted_as_sessions(self):
+        for name in ("a.json", "b.json", "a_artifact.json", "a_artifact.md", "notes.txt"):
+            (self.tmp_dir / name).write_text("{}", encoding="utf-8")
+        manager = SessionManager(storage_dir=str(self.tmp_dir))
+
+        self.assertEqual(sorted(p.name for p in manager.saved_session_paths()), ["a.json", "b.json"])
+        self.assertEqual(manager.delete_all(), 2)
+        self.assertEqual(
+            sorted(p.name for p in self.tmp_dir.iterdir()), ["a_artifact.json", "a_artifact.md", "notes.txt"]
+        )
+
+
+class TestSessionManagerLoad(TemporaryFolderCase):
     """Tests for session load from disk."""
-
-    def setUp(self):
-        self.tmp_dir = Path("/tmp/sensai_test_sessions_load")
-        self.tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def _write_session_file(self, session_id: str, messages: list) -> None:
         data = {"session_id": session_id, "timestamp": "2026-01-01T00:00:00", "messages": messages}

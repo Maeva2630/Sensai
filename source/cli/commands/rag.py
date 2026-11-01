@@ -8,8 +8,9 @@ from cli.terminal import ask_confirmation
 from observability.app_logging import get_logger
 from rag.context import ArchiveIndexingResult, RAGIndexer
 from rag.embeddings import EmbeddingError
-from rag.ingestion import DocumentIngestionError
+from rag.ingestion import DocumentIngestionError, IngestedDocument
 from rag.storage import MetadataFilter, VectorStoreError
+from tools.safety import suspicious_instructions
 
 
 MULTIPLE_INGEST_FLAGS = frozenset({"-m", "--multiple"})
@@ -58,13 +59,30 @@ def _index_document(document_path: str, rag_indexer: RAGIndexer) -> bool:
 
     if isinstance(result, ArchiveIndexingResult):
         _print_archive_indexing_summary(result)
+        for document_result in result.indexed_documents:
+            _warn_about_instructions(document_result.document)
         return True
 
     print(
         f"Document indexed: {result.document.source_filename} "
         f"({result.chunk_count} chunks; {result.inserted_chunk_count} new chunks stored)."
     )
+    _warn_about_instructions(result.document)
     return True
+
+
+def _warn_about_instructions(document: IngestedDocument) -> None:
+    """Tell the teacher when a document contains text addressed to an AI assistant."""
+    lines = suspicious_instructions(document.text)
+    if not lines:
+        return
+    logger.warning("rag.suspicious_document source=%s lines=%s", document.source_filename, len(lines))
+    print(
+        f"Warning: {document.source_filename} contains text that looks like instructions to an AI assistant "
+        "(possible prompt injection). It is indexed as data only, but check where this document comes from:"
+    )
+    for line in lines:
+        print(f'  - "{line}"')
 
 
 def _print_archive_indexing_summary(result: ArchiveIndexingResult) -> None:

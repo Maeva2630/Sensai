@@ -174,13 +174,23 @@ class LocalVectorStore:
             return connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
     def clear(self) -> int:
-        """Delete every indexed chunk while preserving the local database structure."""
+        """Delete every indexed chunk while preserving the local database structure.
+
+        A DELETE only marks pages as free: the text stays readable in the file until it is
+        overwritten. VACUUM rebuilds the file so the deleted text is really gone. It cannot
+        run inside a transaction, so it runs after the DELETE is committed.
+        """
         try:
-            with self._connect() as connection:
-                cursor = connection.execute("DELETE FROM chunks")
-                return cursor.rowcount
+            connection = self._connect()
+            try:
+                with connection:
+                    deleted = connection.execute("DELETE FROM chunks").rowcount
+                connection.execute("VACUUM")
+            finally:
+                connection.close()
         except sqlite3.Error as error:
             raise VectorStoreError("Unable to clear the local RAG index.") from error
+        return deleted
 
     def list_sources(self) -> list[tuple[str, int]]:
         """Return each indexed source filename with its number of chunks."""

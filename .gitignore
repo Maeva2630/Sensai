@@ -222,3 +222,6 @@ __marimo__/
 sessions
 # Generated local benchmark responses may contain model output and hardware measurements.
 benchmarks/results/*.json
+
+# Screen recordings kept as a fallback for the live demonstration
+demo/recordings/

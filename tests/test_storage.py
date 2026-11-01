@@ -118,6 +118,18 @@ class TestLocalVectorStore(unittest.TestCase):
         self.assertEqual(self.store.count_chunks(), 0)
         self.assertEqual(self.store.store_chunks([embedded_chunk("new", (1.0, 0.0))]), 1)
 
+    def test_cleared_text_cannot_be_read_back_from_the_database_file(self):
+        marker = "Suivi PAP Tom Durand dyslexie"
+        self.store.store_chunks(
+            [embedded_chunk(f"chunk-{index}", (1.0, float(index)), f"{marker} {index}") for index in range(50)]
+        )
+        self.assertIn(marker.encode(), self.database_path.read_bytes())
+
+        self.store.clear()
+
+        self.assertNotIn(marker.encode(), self.database_path.read_bytes())
+        self.assertEqual(self.store.count_chunks(), 0)
+
     def test_invalid_record_does_not_partially_write_other_records(self):
         valid_record = embedded_chunk("valid", (1.0, 0.0))
         invalid_record = embedded_chunk("invalid", (float("nan"), 0.0))

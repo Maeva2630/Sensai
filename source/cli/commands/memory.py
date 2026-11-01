@@ -19,14 +19,17 @@ def _dispatch_save(
     if not context.feature_config.memory_enabled:
         print("Memory is disabled in config.json.")
         return
-    context.conversation_session.save()
+    if context.conversation_session.save() is None:
+        print("The conversation is empty: no session file was written.")
     if context.artifact_manager and context.artifact_manager.has_artifact():
         try:
             context.artifact_manager.session_id = context.conversation_session.session_id
             saved_artifact_path = context.artifact_manager.save()
-            print(f"Artifact saved at {saved_artifact_path}")
-        except Exception as error:
-            logger.warning("artifact.save_failed error=%s", error)
+        except (OSError, ValueError) as error:
+            logger.warning("artifact.save_failed error_type=%s error=%s", type(error).__name__, error)
+            print(f"The artifact could not be saved: {error}")
+            return
+        print(f"Artifact saved at {saved_artifact_path}")
 
 
 def _dispatch_load(
@@ -78,14 +81,22 @@ def _dispatch_forget(
     if arguments not in ([], ["all"]):
         print("Usage: /forget [all]")
         return
+    artifacts = context.artifact_manager
     if arguments:
-        if not ask_confirmation("Delete ALL saved sessions? This cannot be undone."):
+        if not ask_confirmation("Delete ALL saved sessions and their artifacts? This cannot be undone."):
             print("Nothing deleted.")
             return
-        print(f"Deleted {context.conversation_session.delete_all()} saved session(s).")
+        sessions_deleted = context.conversation_session.delete_all()
+        artifacts_deleted = artifacts.delete_all() if artifacts else 0
+        print(f"Deleted {sessions_deleted} saved session(s) and {artifacts_deleted} saved artifact(s).")
     else:
         deleted = context.conversation_session.delete()
         print("Saved copy of this session deleted." if deleted else "This session had no saved copy.")
+        if artifacts:
+            # The artifact is saved under the identifier of the conversation it belongs to.
+            artifacts.session_id = context.conversation_session.session_id
+            if artifacts.delete():
+                print("Saved artifact of this session deleted.")
     system_prefix = (
         [context.messages[0]]
         if context.messages and context.messages[0].get("role") == "system"
@@ -93,9 +104,16 @@ def _dispatch_forget(
     )
     context.messages[:] = system_prefix
     context.conversation_session.clear()
+    had_artifact = artifacts is not None and artifacts.has_artifact()
+    if artifacts:
+        artifacts.reset()
     session.last_request_messages = None
     session.last_rag_context = None
-    print("The current conversation was cleared from memory.")
+    print(
+        "The current conversation and its artifact were cleared from memory."
+        if had_artifact
+        else "The current conversation was cleared from memory."
+    )
 
 
 def _dispatch_tokens(

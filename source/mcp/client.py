@@ -2,7 +2,9 @@ import json
 import os
 import queue
 import subprocess
+import sys
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -49,6 +51,15 @@ class MCPTimeoutError(MCPError):
     pass
 
 
+def _interpreter(command: str) -> str:
+    """Run Python servers with SensAI's own interpreter.
+
+    `python3` from PATH can be a system Python outside the virtual environment (or
+    missing, as on Windows); the interpreter running SensAI is known to work.
+    """
+    return sys.executable if command in ("python", "python3") and sys.executable else command
+
+
 class MCPClient:
     """Minimal MCP client talking to a local server over stdio (JSON-RPC 2.0).
 
@@ -57,8 +68,10 @@ class MCPClient:
     """
 
     def __init__(self, command: str, args: Optional[List[str]] = None,
-                 env: Optional[Dict[str, str]] = None, timeout: float = 10.0):
+                 env: Optional[Dict[str, str]] = None, timeout: float = 10.0,
+                 cwd: Optional[str] = None):
         self.command = command
+        self.cwd = cwd
         self.args = args or []
         self.env = env
         self.timeout = timeout
@@ -78,7 +91,8 @@ class MCPClient:
         env = {**safe_environment(os.environ), **(self.env or {})}
         try:
             self._process = subprocess.Popen(
-                [self.command, *self.args],
+                [_interpreter(self.command), *self.args],
+                cwd=self.cwd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -109,7 +123,10 @@ class MCPClient:
         while True:
             params = {"cursor": cursor} if cursor else {}
             result = self._request("tools/list", params)
-            tools.extend(result.get("tools", []))
+            listed = result.get("tools", []) if isinstance(result, dict) else None
+            if not isinstance(listed, list):
+                raise MCPError("MCP server returned an invalid tools/list result")
+            tools.extend(listed)
             cursor = result.get("nextCursor")
             if not cursor:
                 return tools
@@ -177,9 +194,15 @@ class MCPClient:
         request_id = self._next_id
         self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
 
+        # One deadline for the whole request: a server that keeps printing log lines or
+        # pings must not be able to hold the conversation forever.
+        deadline = time.monotonic() + self.timeout
         while True:
+            remaining = deadline - time.monotonic()
             try:
-                line = self._lines.get(timeout=self.timeout)
+                if remaining <= 0:
+                    raise queue.Empty
+                line = self._lines.get(timeout=remaining)
             except queue.Empty:
                 raise MCPTimeoutError(f"MCP server did not answer '{method}' within {self.timeout}s") from None
             if line is None:

@@ -1,11 +1,13 @@
 import json
-import logging
 from typing import Any, Dict, List, Optional
 
+from observability.app_logging import get_logger
 from tools.base import Tool, ToolError, ToolResult
 from tools.safety import MAX_RESULT_CHARS, truncate_result
 
-logger = logging.getLogger(__name__)
+# Inside the configured application logger: a tool's traceback goes to the log file,
+# not to the teacher's terminal.
+logger = get_logger("tools.registry")
 
 _JSON_TYPES = {
     "null": type(None),
@@ -122,6 +124,17 @@ class ToolRegistry:
     def claims_request(self, user_input: str) -> bool:
         """Return whether any tool explicitly claims this request."""
         return any(tool.claims_request(user_input) for tool in self._tools.values())
+
+    def claimed_tool_without_arguments(self, user_input: str) -> Optional[Tool]:
+        """The tool that claims this request when it needs no argument (e.g. the clock).
+
+        Such a request can be served without letting the model decide: a 3B model
+        sometimes answers "I cannot tell the time" instead of calling the tool.
+        """
+        for tool in self._tools.values():
+            if tool.claims_request(user_input) and not tool.parameters.get("required"):
+                return tool
+        return None
 
     def execute(self, name: str, arguments: Any) -> ToolResult:
         """Validate and run a tool. Never raises: failures come back as an error result."""

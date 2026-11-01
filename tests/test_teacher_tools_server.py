@@ -91,7 +91,7 @@ class TestCalculateGrade(unittest.TestCase):
     def test_weighted_average(self):
         response = call(self.server, "calculate_grade", {"marks": [12, 15, 9], "coefficients": [2, 3, 1]})
         self.assertFalse(response["result"]["isError"])
-        self.assertEqual(text_of(response), "Weighted average: 13/20 (3 marks)")
+        self.assertEqual(text_of(response), "Weighted average: 13/20 (computed from 3 marks)")
 
     def test_coefficients_default_to_one(self):
         response = call(self.server, "calculate_grade", {"marks": [10, 15]})
@@ -241,7 +241,7 @@ class TestTeacherToolsWithSensai(unittest.TestCase):
     def test_tool_call_through_the_registry(self):
         result = self.registry.execute("teacher__calculate_grade", {"marks": [12, 15, 9], "coefficients": [2, 3, 1]})
         self.assertFalse(result.is_error)
-        self.assertEqual(result.content, "Weighted average: 13/20 (3 marks)")
+        self.assertEqual(result.content, "Weighted average: 13/20 (computed from 3 marks)")
 
     def test_invalid_arguments_come_back_as_an_error_result(self):
         result = self.registry.execute("teacher__class_statistics", {"marks": [99]})

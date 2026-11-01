@@ -44,13 +44,14 @@ class FallbackChatClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        options: dict[str, Any] | None = None,
     ) -> Generator[bytes, None, None]:
         """Stream with a fallback only if no response chunk has been yielded."""
         for index in range(self._active_index, len(self._clients)):
             client = self._clients[index]
             yielded_response = False
             try:
-                for chunk in client.stream_message(messages, tools=tools):
+                for chunk in client.stream_message(messages, tools=tools, options=options):
                     yielded_response = True
                     yield chunk
             except OllamaModelNotFoundError:
@@ -81,6 +82,16 @@ class FallbackChatClient:
             self._active_index = index
             return response
         raise RuntimeError("No configured chat model could complete the request.")
+
+    @property
+    def options(self) -> dict[str, Any]:
+        """Generation options shared by every configured model."""
+        return self._clients[self._active_index].options
+
+    def update_options(self, options: dict[str, Any]) -> None:
+        """Apply new generation options to every model, so a fallback keeps them."""
+        for client in self._clients:
+            client.update_options(options)
 
     def _notify_fallback(self, primary: str, fallback: str) -> None:
         if self._on_fallback is not None:

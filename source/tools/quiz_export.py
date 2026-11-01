@@ -6,15 +6,19 @@ from typing import Any, Dict, Optional
 from tools.base import ToolError
 from tools.filesystem import FilesystemTool
 from tools.permissions import PermissionChecker
-from tools.structured_output import format_quiz
+from tools.structured_output import clean_quiz, format_quiz
 
 _ANSWER_FIELDS = ("answer_index", "explanation")
 
 
 def render_quiz(quiz: Dict[str, Any], destination: Path, answers: bool = True) -> str:
-    """The quiz as JSON for a `.json` file, as readable text otherwise."""
+    """The quiz as JSON for a `.json` file, as readable text otherwise.
+
+    The text keeps the reminder to check the answer key; the JSON holds only the quiz data.
+    """
     if destination.suffix.lower() != ".json":
         return format_quiz(quiz, answers=answers)
+    quiz = clean_quiz(quiz)
     if not answers:
         quiz = {
             **quiz,

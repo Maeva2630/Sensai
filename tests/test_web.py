@@ -378,6 +378,37 @@ class ServerTests(WebAppCase):
         self.assertEqual(status, 200)
         self.assertIn(b"# Fractions", data)
 
+    def test_negative_content_length_is_refused_before_reading(self):
+        """Regression: rfile.read(-1) read the whole body, past the size limits."""
+        cases = [
+            ("/api/command", "application/json", b'{"command": "/tokens"}'),
+            ("/api/upload?name=a.md", "application/octet-stream", b"# Title"),
+        ]
+        for path, content_type, body in cases:
+            with self.subTest(path=path):
+                status, data = self.request(
+                    "POST", path, body, {"Content-Type": content_type, "Content-Length": "-1"}
+                )
+                self.assertEqual(status, 400)
+                self.assertIn("Invalid Content-Length", json.loads(data)["error"])
+        self.app.runtime.rag_indexer.index_document.assert_not_called()
+
+    def test_content_length_above_the_limits_is_refused(self):
+        with patch("web.server.MAX_JSON_BYTES", 16), patch("web.server.MAX_UPLOAD_BYTES", 16):
+            status, _ = self.request(
+                "POST", "/api/command", b'{"command": "/tokens", "padding": "xxxx"}', {"Content-Type": "application/json"}
+            )
+            self.assertEqual(status, 413)
+            status, _ = self.request(
+                "POST", "/api/upload?name=a.md", b"x" * 17, {"Content-Type": "application/octet-stream"}
+            )
+            self.assertEqual(status, 413)
+            status, _ = self.request(
+                "POST", "/api/command", b"{}", {"Content-Type": "application/json", "Content-Length": "abc"}
+            )
+            self.assertEqual(status, 400)
+        self.app.runtime.rag_indexer.index_document.assert_not_called()
+
     def test_quiz_download_without_quiz_is_404(self):
         self.assertEqual(self.request("GET", "/api/quiz/download")[0], 404)
 

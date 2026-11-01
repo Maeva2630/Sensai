@@ -3,14 +3,18 @@
 import io
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
+SOURCE_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source"))
+sys.path.insert(0, SOURCE_DIRECTORY)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from support import use_temporary_working_directory
 from cli.cli import cli
 from cli.commands.metrics import _format_dashboard, _parse_filters
 from cli.tool_calls import run_tool_calls
@@ -135,6 +139,49 @@ class TestMonitoringStore(unittest.TestCase):
         self.assertEqual(metrics.tool_calls, 1)
         self.assertEqual(metrics.tool_successes, 1)
 
+    def test_tool_filter_matches_the_interaction_that_called_the_tool(self):
+        """Regression: the filter compared tool ids with themselves, so ids had to line up by chance."""
+        def interaction():
+            return self.store.record_model_interaction(
+                model="llama3.2",
+                features=FeatureConfig(),
+                prompt_version="teacher-v1",
+                status="success",
+                latency_ms=10,
+                input_tokens=1,
+                output_tokens=1,
+                rag_chunk_count=0,
+            )
+
+        interaction()  # id 1: no tool
+        with_tool = interaction()  # id 2: the tool row gets id 1
+        self.store.record_tool_interaction(
+            model_interaction_id=with_tool, tool_name="get_time", status="success", latency_ms=5
+        )
+        self.store.record_tool_interaction(
+            model_interaction_id=with_tool, tool_name="get_time", status="error", latency_ms=5
+        )
+
+        metrics = self.store.dashboard(MetricsFilter(tool_name="get_time"))
+
+        self.assertEqual(metrics.model_calls, 1)
+        self.assertEqual(metrics.tool_calls, 2)
+        self.assertEqual((metrics.tool_successes, metrics.tool_failures), (1, 1))
+        self.assertEqual(self.store.dashboard(MetricsFilter(tool_name="web_search")).model_calls, 0)
+
+    def test_module_imports_without_the_python_3_11_utc_alias(self):
+        """SensAI supports Python 3.10, where datetime.UTC does not exist."""
+        code = "import datetime; datetime.__dict__.pop('UTC', None); import observability.monitoring"
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            env={**os.environ, "PYTHONPATH": SOURCE_DIRECTORY},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_metrics_filters_are_parsed_without_accepting_unknown_options(self):
         filters = _parse_filters(
             "/metrics --from 2026-01-01 --model llama3.2 --feature rag"
@@ -152,6 +199,9 @@ class TestMonitoringStore(unittest.TestCase):
 
 
 class TestMonitoringCliIntegration(unittest.TestCase):
+    def setUp(self):
+        use_temporary_working_directory(self)  # cli() saves sessions/ and data/ in the current directory
+
     @patch("cli.cli.OllamaHTTPClient")
     def test_enabled_monitoring_records_each_model_request_without_storing_text(self, client_class):
         with tempfile.TemporaryDirectory() as directory:

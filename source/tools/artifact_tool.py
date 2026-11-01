@@ -65,7 +65,10 @@ class ArtifactTool(Tool):
     }
 
     _RELEVANT_PATTERN = re.compile(
-        r"\b(artifact|document|livrable|spec|specification|cahier des charges|plan|notes|summary|résumé|outline)\b",
+        # Only explicit references to the shared document: common words such as "plan",
+        # "notes" or "résumé" made the model edit the artifact on ordinary lesson requests.
+        r"\b(artifacts?|livrable|cahier des charges|specification|shared document|document partag[ée]"
+        r"|mon document|le document de travail)\b",
         re.IGNORECASE,
     )
 

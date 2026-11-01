@@ -85,3 +85,30 @@ class TestMCPClient(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRequestDeadline(unittest.TestCase):
+
+    def test_a_server_that_keeps_logging_cannot_hold_a_request_forever(self):
+        import threading
+        import time
+        from unittest.mock import MagicMock
+
+        from mcp.client import MCPClient, MCPTimeoutError
+
+        client = MCPClient("unused", timeout=0.3)
+        client._process = MagicMock()
+        client._process.poll.return_value = None
+        stop = threading.Event()
+
+        def chatter():
+            while not stop.is_set():
+                client._lines.put("log line, not JSON-RPC\n")
+                time.sleep(0.02)
+
+        threading.Thread(target=chatter, daemon=True).start()
+        self.addCleanup(stop.set)
+        started = time.monotonic()
+        with self.assertRaises(MCPTimeoutError):
+            client.call_tool("anything")
+        self.assertLess(time.monotonic() - started, 2.0)

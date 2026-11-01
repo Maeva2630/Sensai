@@ -32,12 +32,17 @@ or every configured chat model is unavailable. Stop the server with `Ctrl+C`.
 Any slash command can also be typed in the message box and its output is shown in the chat.
 
 - **Streaming:** answers appear progressively, as in the terminal.
-- **Web confirmation:** when the model wants to search the web, the page shows the exact text or
-  URL with **Allow** and **Cancel**, like the `[y/N]` question in the terminal. No answer within
-  two minutes counts as a refusal, so nothing leaves the machine by default.
+- **Web confirmation:** when the model wants to search the web, call a network MCP tool or write
+  a file, the page shows the exact text, URL or file with **Allow** and **Cancel**, like the
+  `[y/N]` question in the terminal. No answer within two minutes counts as a refusal, so nothing
+  leaves the machine and nothing is written by default.
+- **Commands that delete data:** `/rag reset` and `/forget all` typed in the message box open a
+  browser confirmation first (they used to wait for an answer in the server's terminal and
+  freeze the page).
 - **Model fallback:** if the primary model is missing and a fallback answers, a notice says so.
 - **Saving:** the conversation (and the working document) is saved after every answer. The
-  terminal saves on exit only.
+  terminal saves on exit only. The conversation list shows conversations only, not the
+  working-document files stored next to them.
 - **`/exit` and `/quit`:** they do nothing in the page, which stays open.
 
 ## How it is built
@@ -61,7 +66,8 @@ returns the safe message instead of printing it.
 - The server listens on `127.0.0.1` only. Never expose it on a network: there is **no login**,
   it serves one local user.
 - The `Host` header must be this machine (against DNS rebinding), and a `POST` must be JSON or
-  raw bytes. A page from another site open in the same browser cannot send either without a CORS
+  raw bytes. An invalid, negative or oversized `Content-Length` is refused before anything is
+  read (1 MB for JSON, 25 MB for uploads). A page from another site open in the same browser cannot send either without a CORS
   preflight, which the server refuses.
 - Text is displayed with `textContent`, never as HTML.
 - Uploaded files are written to `data/uploads/`, indexed, then deleted right away. File names are

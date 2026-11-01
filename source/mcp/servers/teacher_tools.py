@@ -141,7 +141,8 @@ def calculate_grade(arguments: Dict[str, Any]) -> str:
         raise ToolInputError("the sum of the coefficients must be greater than 0")
 
     average = sum(mark * coefficient for mark, coefficient in zip(marks, coefficients)) / total
-    return f"Weighted average: {_format(average)}/{_format(max_mark)} ({len(marks)} marks)"
+    # "(3 marks)" was read as "3 out of 20" by the model: the count is spelled out.
+    return f"Weighted average: {_format(average)}/{_format(max_mark)} (computed from {len(marks)} marks)"
 
 
 def class_statistics(arguments: Dict[str, Any]) -> str:

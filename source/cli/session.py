@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from cli.context_budget import TokenEstimator
 from config import FeatureConfig, PersonasConfig
 from memory.artifact_manager import ArtifactManager
 from memory.profile_manager import ProfileManager
@@ -56,6 +57,13 @@ class CliSession:
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     context_window: int = 4096
+    token_estimator: TokenEstimator = field(default_factory=TokenEstimator)
+    # Names of the tools offered with the last request and its generation settings,
+    # shown by /debug prompt so the inspection covers everything that was sent.
+    last_request_tools: list[str] = field(default_factory=list)
+    last_request_options: dict[str, Any] = field(default_factory=dict)
+    # Timings Ollama reported for the last answer (nanoseconds), used by /stats.
+    last_generation_stats: dict[str, int] = field(default_factory=dict)
 
     @property
     def last_turn_tokens(self) -> int:

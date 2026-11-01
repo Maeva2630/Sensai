@@ -2,21 +2,32 @@
 
 [Home](../README.md) · [User guide](user-guide.md) · [Feature documentation](features/README.md)
 
-SensAI loads one application configuration file at startup:
+SensAI loads one application configuration file at startup, by default:
 
 ```text
 <repository-root>/config.json
 ```
 
-The current CLI always reads this location. `python3 source/main.py` has no `--config`
-option, so edit the repository's `config.json` and restart SensAI after each change.
+Choose another file, or override the model settings for one run, from the command line:
+
+```bash
+python3 source/main.py --config demo/config.json             # another configuration file
+python3 source/main.py --model llama3.2:latest                # another chat model for this run
+python3 source/main.py --temperature 0.8 --context-window 8192
+```
+
+During a conversation, `/set temperature <0-2>` and `/set context <tokens>` change the same
+two settings until SensAI stops, which makes their effect visible without a restart
+(see [context engineering](context-engineering.md#7-generation-parameters)). The file is
+never modified by these options. Configuration problems (malformed JSON, invalid values,
+an unreadable or non-UTF-8 file) stop SensAI with a one-line message and exit code 1.
 
 ## File format
 
 The file is a UTF-8 encoded **JSON object**. JSON needs double-quoted keys and strings;
 it does not allow comments or trailing commas. This is invalid JSON:
 
-```json
+```text
 {
   "temperature": 0.2,
 }
@@ -28,36 +39,40 @@ spelled exactly as documented.
 
 ## Complete example
 
-This is a complete valid starting point. The two model names must be available from the
-Ollama server specified by `base_url`.
+This is the repository's `config.json` (one persona kept for brevity). The three model
+names must be available from the Ollama server specified by `base_url`.
 
 ```json
 {
   "model": {
     "chat_model": "qwen2.5:3b",
-    "fallback_chat_models": ["llama3.2:latest"],
+    "fallback_chat_models": [
+      "llama3.2:latest"
+    ],
     "embedding_model": "nomic-embed-text",
     "base_url": "http://localhost:11434",
     "temperature": 0.2,
-    "context_window": 4096
+    "context_window": 4096,
+    "request_timeout_seconds": 120
   },
   "features": {
     "rag_enabled": true,
     "tools_enabled": true,
     "memory_enabled": true,
-    "source_display_enabled": true
+    "source_display_enabled": true,
+    "network_enabled": false
   },
   "rag": {
     "top_k": 3,
     "max_context_characters": 4000,
-    "relevance_threshold": 0.35
+    "relevance_threshold": 0.6
   },
   "logging": {
     "level": "INFO",
     "file_path": "logs/sensai.log"
   },
   "monitoring": {
-    "enabled": false,
+    "enabled": true,
     "database_path": "data/sensai_monitoring.sqlite3",
     "retention_days": 30,
     "prompt_version": "default-v1"
@@ -89,7 +104,8 @@ Ollama server specified by `base_url`.
 | `embedding_model` | Non-empty string | `nomic-embed-text` | Ollama model used by RAG search. |
 | `base_url` | Non-empty string | `http://localhost:11434` | Ollama API address. |
 | `temperature` | Finite number from `0` to `2` | `0.2` | Response variation; lower values are usually more stable. |
-| `context_window` | Integer, at least `512` | `4096` | Context sent as Ollama `num_ctx`; larger values can use more RAM/VRAM. |
+| `context_window` | Integer, at least `512` | `4096` | Context sent as Ollama `num_ctx`; larger values use more memory (about 36 KiB per token with `qwen2.5:3b`). A quarter of it is kept for the answer and every request is checked against the rest before it is sent ([context engineering](context-engineering.md#4-size-management)). |
+| `request_timeout_seconds` | Number greater than `0` (optional) | `120` | Longest wait for the next part of an Ollama answer. A 20-question quiz takes about 43 s on an M5; a timeout is reported as "Ollama did not answer in time", not as "Ollama is down". |
 
 The chat and embedding models serve different purposes. Pull both configured models with
 `ollama pull <model-name>`. Read the [RAG guide](features/rag.md#configuration-and-limitations)
@@ -105,9 +121,10 @@ response fails after streaming has begun.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `rag_enabled` | Boolean | `true` | Makes `/rag on` available; RAG starts off each session. |
-| `tools_enabled` | Boolean | `true` | Registers native time and permitted filesystem tools, including controlled quiz export. |
-| `memory_enabled` | Boolean | `true` | Enables session saving/loading, token usage, and conversation compression commands. |
+| `tools_enabled` | Boolean | `true` | Registers the native tools (time, permitted file tools, quiz export, artifact editor) **and starts the MCP servers**. `false` starts no tool and no MCP server. |
+| `memory_enabled` | Boolean | `true` | Enables session saving/loading, token usage, compression (including the compression done before sending a request that would not fit). |
 | `source_display_enabled` | Boolean | `true` | Initial visibility of RAG source lines. |
+| `network_enabled` | Boolean (optional) | `false` | Registers the web search tool and starts MCP servers marked `"network": true`. Every network call still asks for confirmation. Keep `false` for pupil-related work. |
 
 ### `rag`
 
@@ -115,10 +132,12 @@ response fails after streaming has begun.
 | --- | --- | --- | --- |
 | `top_k` | Integer, at least `1` | `3` | Maximum matching chunks considered. |
 | `max_context_characters` | Integer, at least `300` | `4000` | Character budget for retrieved context. |
-| `relevance_threshold` | Finite number from `-1` to `1` | `0.35` | Chunks below this score are discarded. |
+| `relevance_threshold` | Finite number from `-1` to `1` | `0.6` | Chunks below this cosine score are discarded. When none is left and no tool fits the request, SensAI answers "not found" without calling the model. |
 
-Raise the threshold to reject more weak matches; lower it if relevant passages are being
-excluded. Test settings with representative documents: they do not guarantee correctness.
+The default 0.6 was calibrated with `nomic-embed-text` on French course questions:
+on-topic questions scored 0.69–0.85 against their document, unrelated ones 0.40–0.54
+(the former 0.35 let everything through). With another embedding model, measure again:
+`python3 scripts/evaluate_rag.py` reports accuracy and abstention for a given setting.
 
 ## Optional sections
 
@@ -137,7 +156,7 @@ If omitted, monitoring is disabled by default.
 
 | Field | Accepted value | Default | Meaning |
 | --- | --- | --- | --- |
-| `enabled` | Boolean | `false` | Enables local interaction metrics. |
+| `enabled` | Boolean | `false` (`true` in the repository's `config.json`) | Enables local interaction metrics shown by `/metrics`. Only metadata is stored, never text. |
 | `database_path` | Non-empty string | `data/sensai_monitoring.sqlite3` | Local metrics database. |
 | `retention_days` | Integer, at least `1` | `30` | Age after which events are removed on store initialization. |
 | `prompt_version` | Non-empty string | `default-v1` | Manual label for comparing prompt versions. |
@@ -152,9 +171,11 @@ non-empty array. Each profile needs non-empty `identifier`, `display_name`, `rol
 `tone`, and `response_scope` strings, plus **exactly one** prompt source:
 
 - `system_prompt`: an inline, non-empty string; or
-- `prompt_file`: a non-empty UTF-8 file path relative to `config.json`.
+- `prompt_file`: a non-empty UTF-8 file path, looked up relative to the configuration file
+  first, then to the project root (so `demo/config.json` can use `prompts/…`).
 
-A prompt file must remain within the configuration directory. For example:
+A prompt file must remain within the configuration directory or the project; any other
+path is refused at startup. For example:
 
 ```json
 {
@@ -172,8 +193,18 @@ See [personas](features/personas.md) for runtime commands.
 ## Separate MCP configuration
 
 MCP server definitions do **not** go in `config.json`. The optional `mcp_servers.json`
-file is read from the directory where SensAI starts. Its `mcpServers` object defines a
-local command, arguments, optional string environment values, and a positive timeout.
+file is read from the **project root** (not from the folder where SensAI is started), and
+each server runs in that folder. Each entry of its `mcpServers` object has:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `command` | yes | Program to start. `python3`/`python` are replaced by the interpreter running SensAI (the virtual environment). |
+| `args` | no | Arguments, relative paths resolved from the project root. |
+| `env` | no | Extra environment strings (the inherited environment is filtered: no tokens or keys). |
+| `timeout` | no | Seconds allowed for each request to the server (default 10). |
+| `network` | no | `true` for servers that reach the internet: started only when `features.network_enabled` is `true`, and every call asks for confirmation. The `web` server uses `uvx mcp-server-fetch`, which needs [uv](https://docs.astral.sh/uv/). |
+| `keywords` | no | Words that make the server's tools worth offering ("moyenne", "minuteur"…). Without keywords the tools are offered with every message, which costs prompt tokens and makes a small model call them by mistake. |
+
 See [tools and MCP](features/tools-and-mcp.md#local-mcp-servers).
 
 Only configure MCP servers you trust: SensAI starts their commands locally. Do not commit

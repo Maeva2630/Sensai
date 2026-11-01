@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from memory.artifact_manager import is_artifact_file
 from memory.private_files import make_private_dir, write_private_json
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -41,8 +42,15 @@ class SessionManager:
         """Clear messages in memory."""
         self.messages = []
 
-    def save(self) -> str:
-        """Save the session to a JSON file at sessions/<session_id>.json."""
+    def save(self) -> str | None:
+        """Save the session to a JSON file at sessions/<session_id>.json.
+
+        An empty conversation is not written: there is nothing to keep, and a session
+        erased with /forget must not come back as an empty file when the CLI exits.
+        Returns the file path, or None when nothing was saved.
+        """
+        if not self.messages:
+            return None
         make_private_dir(self.storage_dir)
         session_path = self.storage_dir / f"{_validated(self.session_id)}.json"
 
@@ -81,15 +89,26 @@ class SessionManager:
         return True
 
     def delete_all(self) -> int:
-        """Delete every saved session file in the sessions folder and return how many."""
-        if not self.storage_dir.is_dir():
-            return 0
+        """Delete every saved session file in the sessions folder and return how many.
+
+        Artifact files stored in the same folder are not sessions: `ArtifactManager.delete_all`
+        removes them.
+        """
         removed = 0
-        for session_path in self.storage_dir.glob("*.json"):
-            if session_path.is_file():
-                session_path.unlink()
-                removed += 1
+        for session_path in self.saved_session_paths():
+            session_path.unlink()
+            removed += 1
         return removed
+
+    def saved_session_paths(self) -> list[Path]:
+        """Return the saved conversation files, without the artifact files kept next to them."""
+        if not self.storage_dir.is_dir():
+            return []
+        return [
+            path
+            for path in self.storage_dir.glob("*.json")
+            if path.is_file() and not is_artifact_file(path)
+        ]
 
     def _generate_id(self) -> str:
         return str(uuid.uuid4())

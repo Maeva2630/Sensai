@@ -260,5 +260,121 @@ class TestApplicationStartup(unittest.TestCase):
             app_config=configuration,
         )
         self.assertEqual(output.getvalue(), "")
+
+class TestConfigurationRobustness(unittest.TestCase):
+    """Startup problems must give a message, never a traceback."""
+
+    def setUp(self):
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.directory = Path(self.temporary_directory.name)
+        self.addCleanup(self.temporary_directory.cleanup)
+
+    def valid_data(self):
+        return json.loads((Path(__file__).resolve().parents[1] / "config.json").read_text(encoding="utf-8"))
+
+    def test_a_config_that_is_not_utf8_is_a_configuration_error(self):
+        path = self.directory / "config.json"
+        path.write_bytes(b'{"model": "caf\xe9"}')
+
+        with self.assertRaises(ConfigurationError) as raised:
+            load_config(path)
+        self.assertIn("UTF-8", str(raised.exception))
+
+    def test_a_folder_instead_of_a_config_file_is_a_configuration_error(self):
+        with self.assertRaises(ConfigurationError) as raised:
+            load_config(self.directory)
+        self.assertIn("Unable to read configuration file", str(raised.exception))
+
+    def test_request_timeout_is_optional_and_validated(self):
+        data = self.valid_data()
+        data["model"].pop("request_timeout_seconds", None)
+        path = self.directory / "config.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertEqual(load_config(path).model.request_timeout_seconds, 120.0)
+
+        data["model"]["request_timeout_seconds"] = 0
+        path.write_text(json.dumps(data), encoding="utf-8")
+        with self.assertRaises(ConfigurationError):
+            load_config(path)
+
+    def test_a_config_in_a_sub_folder_can_use_the_project_prompts(self):
+        # demo/config.json points to prompts/... which lives at the project root.
+        project_config = Path(__file__).resolve().parents[1] / "demo" / "config.json"
+
+        configuration = load_config(project_config)
+
+        self.assertIn("SensAI", configuration.personas.active.system_prompt)
+
+    def test_a_prompt_file_outside_the_project_is_refused(self):
+        data = self.valid_data()
+        data["personas"]["profiles"][0]["prompt_file"] = "../../../../../../etc/hosts"
+        path = self.directory / "config.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        with self.assertRaises(ConfigurationError):
+            load_config(path)
+
+
+class TestCommandLineOverrides(unittest.TestCase):
+    def run_main(self, *arguments, config=None):
+        with patch("main.load_config", return_value=config or AppConfig()), patch("main.configure_logging"), patch(
+            "main.cli"
+        ) as mock_cli, patch("sys.stdout", new_callable=io.StringIO) as output, patch("main.os.umask"):
+            code = main(list(arguments))
+        return code, mock_cli, output.getvalue()
+
+    def test_model_temperature_and_context_can_be_set_for_one_run(self):
+        code, mock_cli, _ = self.run_main("--model", "llama3.2:latest", "--temperature", "0.8", "--context-window", "8192")
+
+        model = mock_cli.call_args.kwargs["app_config"].model
+        self.assertEqual(code, 0)
+        self.assertEqual((model.chat_model, model.temperature, model.context_window), ("llama3.2:latest", 0.8, 8192))
+        # The chosen model is not kept as its own fallback.
+        self.assertNotIn("llama3.2:latest", model.fallback_chat_models)
+
+    def test_invalid_overrides_stop_with_a_message_and_exit_code_1(self):
+        for arguments in (("--temperature", "3"), ("--context-window", "100"), ("--model", " ")):
+            with self.subTest(arguments=arguments):
+                code, mock_cli, output = self.run_main(*arguments)
+                self.assertEqual(code, 1)
+                mock_cli.assert_not_called()
+                self.assertIn("Configuration error:", output)
+
+    def test_a_configuration_file_can_be_chosen(self):
+        with patch("main.load_config", return_value=AppConfig()) as load, patch("main.configure_logging"), patch(
+            "main.cli"
+        ), patch("sys.stdout", new_callable=io.StringIO), patch("main.os.umask"):
+            main(["--config", "demo/config.json"])
+
+        load.assert_called_once_with("demo/config.json")
+
+    def test_ctrl_c_during_startup_exits_cleanly(self):
+        with patch("main.load_config", return_value=AppConfig()), patch("main.configure_logging"), patch(
+            "main.cli", side_effect=KeyboardInterrupt
+        ), patch("sys.stdout", new_callable=io.StringIO) as output, patch("main.os.umask"):
+            code = main([])
+
+        self.assertEqual(code, 130)
+        self.assertIn("Exiting.", output.getvalue())
+
+    def test_files_are_created_private_to_the_user(self):
+        with patch("main.load_config", return_value=AppConfig()), patch("main.configure_logging"), patch(
+            "main.cli"
+        ), patch("sys.stdout", new_callable=io.StringIO), patch("main.os.umask") as umask:
+            main([])
+
+        umask.assert_called_once_with(0o077)
+
+    def test_unexpected_startup_error_does_not_promise_that_sensai_continues(self):
+        with patch("main.load_config", return_value=AppConfig()), patch("main.configure_logging"), patch(
+            "main.cli", side_effect=RuntimeError("boom")
+        ), patch("sys.stdout", new_callable=io.StringIO) as output, patch("main.os.umask"):
+            code = main([])
+
+        self.assertEqual(code, 1)
+        self.assertIn("An unexpected error stopped SensAI.", output.getvalue())
+        self.assertNotIn("You can continue", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

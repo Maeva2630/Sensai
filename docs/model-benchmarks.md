@@ -1,8 +1,8 @@
 # Local model benchmark protocol
 
-[Home](../README.md) · [Product scenario](products-scenario.md) · [Configuration reference](configuration.md)
+[Home](../README.md) · [Product scenario](products-scenario.md) · [Configuration reference](configuration.md) · [Cost-benefit analysis](cost-benefit.md)
 
-This document records a reproducible comparison of local Ollama models for the SensAI teacher-assistant scenario. It separates **measured values** from model-library sizes and from recommendations that still need benchmark evidence.
+This document records a reproducible comparison of local Ollama models for the SensAI teacher-assistant scenario. It separates **measured values** from model-library sizes and from the team's decision based on them.
 
 It also defines how to measure the local impact of changing a model's temperature,
 context window, and supplied RAG context. No value is inferred when the local machine
@@ -25,11 +25,8 @@ The following values were observed on the benchmark machine on 2026-10-27. They 
 
 The first capture was not an idle-memory measurement: swap was already in use. Every benchmark result must therefore include the available RAM and VRAM recorded by the benchmark script at the start of the run.
 
-Add the terminal capture supplied for this environment here after copying it into the repository:
-
-```markdown
-![Benchmark machine specifications](images/benchmarks/01-environment.png)
-```
+A second machine with unified memory (Apple M5) was measured later with a shorter
+protocol; see [Second machine: Apple M5](#second-machine-apple-m5-unified-memory).
 
 ## Candidate models
 
@@ -101,6 +98,11 @@ servers, or restricted environments. No substitute VRAM value is invented.
 
 Run these commands from the repository root with Ollama running. The script only reads the installed model and writes JSON result files under `benchmarks/results/`; it does not download, delete, or reconfigure models.
 
+The result JSON files are **Git-ignored** (`benchmarks/results/*.json` in
+[`.gitignore`](../.gitignore)) because they contain raw model output and hardware details.
+The committed evidence is therefore the tables and screenshots in this document; keep your
+own JSON files if you need to re-check a value.
+
 ```bash
 python3 scripts/benchmark_models.py --model llama3.2:latest --runs 3
 python3 scripts/benchmark_models.py --model qwen2.5:3b --runs 3
@@ -130,13 +132,9 @@ For a visual evidence capture, use a second terminal while each command runs:
 watch -n 0.5 'date "+%H:%M:%S"; echo "--- Ollama ---"; ollama ps; echo "--- NVIDIA ---"; nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader; echo "--- RAM ---"; free -h | sed -n "2p"'
 ```
 
-Save one readable capture per model at these paths, then add the image Markdown below the result table:
-
-```text
-docs/images/benchmarks/02-llama3.2.png
-docs/images/benchmarks/03-qwen2.5-3b.png
-docs/images/benchmarks/04-qwen2.5-7b.png
-```
+The captures taken this way are committed as `docs/images/benchmarks/llama3.2.png`,
+`qwen2.5-3b.png`, and `qwen2.5-7b.png`, and shown below the
+[results table](#results-table---measured-on-2026-10-27).
 
 ## Configuration-impact comparison
 
@@ -211,12 +209,9 @@ cost of RAG, because it also includes different response generation work.
 | Context window `4096` versus `8192` | Effect of `num_ctx` on allocation and short-prompt latency. | A larger capacity can require more RAM/VRAM. A short prompt may show little or no latency difference because it does not fill the extra context. |
 | RAG enabled versus disabled | Effect of injecting retrieved context into the model request. | More context can improve grounded answers, while increasing prompt-processing work and potentially latency/RAM use. It cannot guarantee that a response is factually correct. |
 
-Record values in this table only after running the four commands; do not replace them
-with estimates.
-
-The initial measurements below were run consecutively on 2026-10-30. Their RSS values
-are real measurements, but should not be used to compare configurations because the
-model was not stopped between each run. Re-run with the reset step above for a fair RAM
+The measurements below were run consecutively on 2026-10-30 on the RTX 4060 machine. Their
+RSS values are real measurements, but should not be used to compare configurations because
+the model was not stopped between each run. Re-run with the reset step above for a fair RAM
 comparison.
 
 | Configuration label | Warm first text (ms) | Warm total latency (ms) | Input tok/s | Output tok/s | Peak RSS (MiB)* | Peak VRAM (MiB) | Observation |
@@ -225,6 +220,12 @@ comparison.
 | `temperature-0.8` | 90.23 | 1466.61 | 4593.74 | 111.60 | 1219.83 | 2467 | Similar first-text latency and throughput; longer generated answers made total latency higher. |
 | `context-8192` | 90.19 | 1168.83 | 4597.41 | 111.96 | 1242.15 | 2609 | Short prompts showed no material latency loss; VRAM peak increased by 144 MiB. |
 | `rag-disabled` | 87.64 | 1143.56 | 4494.49 | 112.90 | 1271.86 | 2465 | The RAG case used 85 input tokens instead of 120 and processed them at 3929.35 tok/s, versus 4228.11 tok/s with context. Its different output length prevents a total-latency-only comparison. |
+
+\* Not comparable between rows: the model was not stopped between these runs (see above).
+
+The +144 MiB VRAM of `context-8192` is exactly the KV-cache size predicted for 4,096 extra
+tokens of `qwen2.5:3b` (36 KiB per token); the calculation is in
+[context engineering](context-engineering.md#4-size-management).
 
 ## Quality-review protocol
 
@@ -238,11 +239,17 @@ Minimum pass conditions for a practical default model:
 - the tool prompt emits a valid `get_time` request;
 - no crash, sustained memory exhaustion, or unreliable GPU/CPU fallback occurs across three repetitions.
 
-The team must agree on latency thresholds before making the final recommendation. Suggested starting thresholds are first text token below 3 seconds and a short response below 15 seconds, but these are **project targets**, not measured results.
+The latency targets used for the decision were a first text token below 3 seconds and a
+short response below 15 seconds. They are **project targets**, not measured results. In the
+table below, all three models met both targets on warm requests; on the cold request, only
+`qwen2.5:3b` met the 3-second first-token target (2,254.9 ms, versus 4,370.4 ms for
+`llama3.2:latest` and 7,572.8 ms for `qwen2.5:7b`).
 
 ## Results table - measured on 2026-10-27
 
-The values below come from these clean generated JSON files in `benchmarks/results/`:
+The values below come from these clean generated JSON files in `benchmarks/results/`.
+They are Git-ignored, so they exist only on the benchmark machine; this table and the
+screenshots below are the committed record.
 
 - `20261027-152901-llama3.2-latest.json`
 - `20261027-154641-qwen2.5-3b.json`
@@ -268,15 +275,86 @@ superseded by these clean runs.
 ![Qwen 2.5 3B benchmark](images/benchmarks/qwen2.5-3b.png)
 ![Qwen 2.5 7B benchmark](images/benchmarks/qwen2.5-7b.png)
 
+## Second machine: Apple M5 (unified memory)
+
+Measured on 2026-11-01 with a shorter protocol, to check that the decision holds on a
+Mac and to compare generation speed across machines.
+
+| Component | Observed value |
+| --- | --- |
+| Machine | Apple M5, 16 GB unified memory shared by CPU and GPU |
+| Operating system | macOS 26.6.2 |
+| Ollama | 0.40.7, Metal backend |
+| GPU memory budget | 12,713 MB (`recommendedMaxWorkingSetSize` in `~/.ollama/logs/server.log`) |
+
+How the values were taken:
+
+- direct call to Ollama `/api/chat` with `stream: false`, temperature `0.2`, and `num_ctx`
+  `4096`; output tokens/second is `eval_count / eval_duration` from the final response;
+- one prompt, the main request of the demonstration: *"Rédige une activité de 15 minutes
+  sur les fractions équivalentes pour une classe de 6e."* It is not the four-case prompt
+  set above, so latencies are not comparable with the RTX table; throughput is;
+- three runs per model; run 1 is cold (`ollama stop <model>` first), runs 2 and 3 are warm;
+  `ollama ps` showed no other loaded model before and after each series;
+- memory is the `SIZE` column of `ollama ps` right after the runs. Unified memory has no
+  separate VRAM to sample, and `scripts/benchmark_models.py` reads RAM from Linux `/proc`
+  and VRAM from `nvidia-smi`, neither of which exists on macOS.
+
+| Model | Output tok/s (runs 1 / 2 / 3) | Output tokens | Total duration (s) | Cold load (s) | `ollama ps` size |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `qwen2.5:3b` | 58.3 / 58.1 / 58.7 | 517 / 622 / 550 | 10.25 / 10.73 / 9.40 | 1.30 | 2.2 GB at `num_ctx` 4096; 2.4 GB at 8192 |
+| `llama3.2:latest` | 56.7 / 56.2 / 56.1 | 508 / 529 / 583 | 10.35 / 9.45 / 10.42 | 1.30 | 2.6 GB at `num_ctx` 4096 |
+| `granite3.1-moe:latest` (not a candidate, Mixture-of-Experts illustration) | 144.9 / 149.6 / 152.4 | 782 / 959 / 848 | 6.72 / 6.43 / 5.59 | 1.03 | 2.4 GB at `num_ctx` 4096 |
+
+An earlier session on the same day, with the same method, gave 58.8 / 58.9 / 59.2 tok/s
+for `qwen2.5:3b` and 56.3–56.6 tok/s for `llama3.2:latest`.
+
+Prompt processing (prefill) was measured separately on a 2,050-token prompt whose first
+line changed at every run: 1,399 / 1,507 / 1,517 tok/s for `qwen2.5:3b`, that is 1.35–1.47 s
+for the whole prompt. Prefill rates computed on the repeated 55-token prompt above are not
+used: Ollama can reuse its prompt cache for an identical prompt while `prompt_eval_count`
+still reports the full prompt (it returned 1,570 tokens twice for the same 1,570-token
+prompt).
+
+What this second machine shows:
+
+- the ranking holds: `qwen2.5:3b` is 3.6% faster than `llama3.2:latest` (mean 58.4 versus
+  56.3 tok/s) and uses 0.4 GB less memory. Tool-call validity was not re-measured here;
+- the M5 generates at 0.53 times the RTX 4060 speed for `qwen2.5:3b` (58.4 / 111.0), close
+  to the ratio of their memory bandwidths (153 / 256 GB/s = 0.60). Generation is limited by
+  memory bandwidth, not by compute
+  explains the calculation and the theoretical ceilings (79 and 133 tok/s);
+- the 15-minute activity (517–622 output tokens) took 9.4–10.7 s in total on the M5;
+  almost all of it is generation (output tokens / 58 tok/s).
+
+Reproduce one measurement:
+
+```bash
+ollama stop qwen2.5:3b
+curl -s http://localhost:11434/api/chat -d '{"model": "qwen2.5:3b", "stream": false,
+  "options": {"temperature": 0.2, "num_ctx": 4096},
+  "messages": [{"role": "user", "content": "Rédige une activité de 15 minutes sur les fractions équivalentes pour une classe de 6e."}]}' \
+  | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["eval_count"], "tokens,", round(r["eval_count"] / r["eval_duration"] * 1e9, 1), "tok/s, load", round(r["load_duration"] / 1e9, 2), "s")'
+ollama ps
+grep recommendedMaxWorkingSetSize ~/.ollama/logs/server.log | tail -1
+```
+
 ## Approved decision record
 
 | Decision | Model | Evidence required before approval |
 | --- | --- | --- |
 | Recommended default | `qwen2.5:3b` | Team-approved after the benchmark comparison: it produced valid tool calls in 3/3 attempts, a verified cold first-text latency of 2,254.9 ms, and the best warm total-latency mean (1,204.7 ms), with 111.0 output tok/s. `config.json` uses this model. |
-| Fallback model | `llama3.2:latest` | It has the lowest observed warm VRAM peak (2,786 MiB) and 109.0 output tok/s, but produced invalid `get_time` arguments in 3/3 attempts. It is configured as the automatic fallback when Qwen 3B is missing locally. |
+| Fallback model | `llama3.2:latest` | It reached 109.0 output tok/s with a warm VRAM peak of 2,786 MiB (342 MiB more than Qwen 3B), but produced invalid `get_time` arguments in 3/3 attempts. It is configured as the automatic fallback when Qwen 3B is missing locally. |
 | Usable larger candidate, not selected as default | `qwen2.5:7b` | It ran reliably and produced valid tool calls in 3/3 attempts, but its verified cold total latency was 9,778.4 ms and its warm output speed was 53.7 tok/s: about half the Qwen 3B throughput. It remains an option if a future quality review demonstrates a meaningful quality advantage. |
 | Not practical | `qwen2.5:14b` | Documented pre-benchmark hardware risk: 9.0 GB library size exceeds 8,188 MiB VRAM. |
 
 The team approved Qwen 3B as the default chat model. Keep the raw JSON results with
 their date, model name, and prompt-set version so another team member can reproduce
-the conclusion and reassess it after a model, prompt, or hardware change.
+the conclusion and reassess it after a model, prompt, or hardware change. Because they are
+Git-ignored, copy the values that matter into this document before deleting them.
+
+Two points from the other defense documents affect this decision: `qwen2.5:3b` is
+distributed under the Qwen Research License (non-commercial, "research or evaluation
+purposes only"), and its answers still need teacher review. See
+the model cards and the
+[cost-benefit analysis](cost-benefit.md).

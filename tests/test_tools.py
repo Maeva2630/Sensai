@@ -124,7 +124,7 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_tool_exception_is_returned_not_raised(self):
         self.registry.register(BrokenTool())
-        with self.assertLogs("tools.registry", level="ERROR"):
+        with self.assertLogs("sensai.tools.registry", level="ERROR"):
             result = self.registry.execute("broken", {})
         self.assertTrue(result.is_error)
         # The error type is reported, the internal message is only logged
@@ -184,7 +184,10 @@ class TestGetTimeTool(unittest.TestCase):
         registry.register(GetTimeTool())
         result = registry.execute("get_time", {})
         self.assertFalse(result.is_error)
-        self.assertRegex(result.content, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        self.assertRegex(
+            result.content,
+            r"^Local date and time on this computer: \w+ \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(time zone .+, UTC[+-]\d{2}:\d{2}\)$",
+        )
 
     def test_time_tool_claims_explicit_time_requests(self):
         tool = GetTimeTool()

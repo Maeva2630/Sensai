@@ -7,23 +7,29 @@ from unittest.mock import MagicMock, patch
 
 # Ensure `source` directory is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # pyrefly: ignore [missing-import]
 from cli.cli import CliDependencies, cli
 # pyrefly: ignore [missing-import]
 from mcp.manager import MCPManager
 # pyrefly: ignore [missing-import]
+from support import use_temporary_working_directory_for_module
+# pyrefly: ignore [missing-import]
 from rag.context import PreparedContext
 # pyrefly: ignore [missing-import]
 from rag.storage import SearchResult
 # pyrefly: ignore [missing-import]
 from tools.structured_output import (
+    ANSWER_KEY_NOTE,
     QUIZ_SCHEMA,
     StructuredOutputError,
     check_quiz,
+    clean_quiz,
     format_quiz,
     generate_structured,
     quiz_messages,
+    strip_choice_labels,
     validate_json,
 )
 # pyrefly: ignore [missing-import]
@@ -35,6 +41,8 @@ def setUpModule():
     patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
     patcher.start()
     unittest.addModuleCleanup(patcher.stop)
+    # cli() saves sessions/, profile.json and data/ in the current directory: not in the repository.
+    use_temporary_working_directory_for_module()
 
 
 def good_quiz(**overrides):
@@ -174,6 +182,62 @@ class TestQuizHelpers(unittest.TestCase):
         self.assertIn("Answer key:", text)
         self.assertIn("1. A - By the theorem.", text)
         self.assertIn("2. A", text)
+
+    def test_answer_key_comes_with_a_reminder_to_check_it(self):
+        with_key = format_quiz(good_quiz())
+        student_copy = format_quiz(good_quiz(), answers=False)
+
+        self.assertIn(f"Answer key:\n({ANSWER_KEY_NOTE})\n1. A", with_key)
+        self.assertIn("local model", ANSWER_KEY_NOTE)
+        self.assertNotIn(ANSWER_KEY_NOTE, student_copy)
+
+    def test_labels_written_by_the_model_are_not_doubled(self):
+        quiz = good_quiz()
+        quiz["questions"][0]["choices"] = ["A) 3/4", "B) 1 1/5"]
+        quiz["questions"][1]["choices"] = ["a. Right", "b. Equilateral", "c. Obtuse"]
+
+        text = format_quiz(quiz)
+
+        self.assertIn("   A) 3/4\n   B) 1 1/5", text)
+        self.assertIn("   C) Obtuse", text)
+        self.assertNotIn("A) A)", text)
+        self.assertEqual(quiz["questions"][0]["choices"], ["A) 3/4", "B) 1 1/5"])  # not modified
+
+    def test_strip_choice_labels(self):
+        cases = {
+            "parenthesis": (["A) 3/4", "B) 2/5"], ["3/4", "2/5"]),
+            "dot and lower case": (["a. un", "b. deux"], ["un", "deux"]),
+            "colon and brackets": (["(A): oui", "(B): non"], ["oui", "non"]),
+            "no labels": (["3/4", "2/5"], ["3/4", "2/5"]),
+            "only one looks labelled": (["A. Lincoln", "Washington"], ["A. Lincoln", "Washington"]),
+            "letters not in order": (["E. coli", "B. subtilis"], ["E. coli", "B. subtilis"]),
+        }
+        for name, (choices, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(strip_choice_labels(choices), expected)
+
+    def test_clean_quiz_keeps_the_other_fields(self):
+        quiz = good_quiz()
+        quiz["questions"][0]["choices"] = ["A) c^2", "B) c"]
+
+        cleaned = clean_quiz(quiz)
+
+        self.assertEqual(cleaned["questions"][0]["choices"], ["c^2", "c"])
+        self.assertEqual(cleaned["questions"][0]["answer_index"], 0)
+        self.assertEqual(cleaned["title"], "Pythagoras")
+
+    def test_check_quiz_requires_exactly_one_matching_choice(self):
+        cases = {
+            "identical choices": (["3/4", "3/4", "1"], "two choices are identical"),
+            "identical once labels are removed": (["A) 3/4", "B)  3/4 "], "two choices are identical"),
+            "identical up to case": (["Paris", "paris"], "two choices are identical"),
+            "empty choice": (["3/4", "  "], "a choice is empty"),
+        }
+        for name, (choices, expected) in cases.items():
+            with self.subTest(name):
+                quiz = good_quiz()
+                quiz["questions"][1]["choices"] = choices
+                self.assertIn(f"question 2: {expected}", check_quiz(quiz))
 
     def test_quiz_messages_are_grounded_only_with_excerpts(self):
         plain = quiz_messages("Pythagoras", 3)

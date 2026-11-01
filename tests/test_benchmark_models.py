@@ -2,9 +2,11 @@
 
 import importlib.util
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).parent.parent
@@ -38,3 +40,27 @@ class TestBenchmarkConfiguration(unittest.TestCase):
     def test_unavailable_measurement_is_not_replaced_with_zero(self):
         self.assertEqual(benchmark_models._format_measurement(None, "MiB"), "unavailable")
         self.assertEqual(benchmark_models._format_measurement(42, "MiB"), "42.00 MiB")
+
+
+class TestBenchmarkPortability(unittest.TestCase):
+    def test_ollama_memory_is_unavailable_without_proc(self):
+        """macOS and Windows have no /proc: the sampler must not crash before the first request."""
+        with patch.object(benchmark_models.Path, "iterdir", side_effect=FileNotFoundError("/proc")):
+            self.assertIsNone(benchmark_models._ollama_rss_mib())
+            sampler = benchmark_models.ResourceSampler()
+            sampler._append_sample()
+
+        self.assertIsNone(sampler.samples[0]["ollama_rss_mib"])
+        self.assertIsNone(sampler.summary()["ollama_rss_peak_mib"])
+
+    def test_script_loads_without_the_python_3_11_utc_alias(self):
+        """SensAI supports Python 3.10, where datetime.UTC does not exist."""
+        code = (
+            "import datetime, runpy, sys; datetime.__dict__.pop('UTC', None); "
+            "module = runpy.run_path(sys.argv[1]); module['_environment']()"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", code, str(SCRIPT_PATH)], capture_output=True, text=True, timeout=60
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)

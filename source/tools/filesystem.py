@@ -18,9 +18,13 @@ class FilesystemTool(Tool):
     # File contents and file names are data written by someone else, not instructions
     untrusted = True
 
+    # Nouns and paths only: verbs such as "write" or "save" also appear in ordinary
+    # teaching requests ("write a lesson plan") and made the model call file tools.
     _REQUEST_PATTERN = re.compile(
-        r"\b(files?|folders?|directory|directories|read|write|save|export\w*|fichiers?|dossiers?|"
-        r"r[ée]pertoires?|lis|lire|[ée]cris|[ée]crire|enregistre\w*|sauvegarde\w*)\b",
+        r"\b(files?|folders?|directory|directories|export\w*|fichiers?|dossiers?|r[ée]pertoires?)\b"
+        r"|\b[\w-]+\.(md|txt|csv|json)\b"
+        # A folder written with its slash ("courses/"), but not a fraction like "3/4" or "et/ou"
+        r"|\b[A-Za-z][\w-]{2,}/(?=\s|$|[.,;:!?])",
         re.IGNORECASE,
     )
 
@@ -94,6 +98,17 @@ class WriteFileTool(FilesystemTool):
         },
         "required": ["path", "content"],
     }
+
+    def confirmation_prompt(self, arguments: Dict[str, Any]) -> str | None:
+        """Every write is shown to the user first: a document read earlier can contain
+        instructions that push the model to overwrite a teacher's file."""
+        content = str(arguments.get("content", ""))
+        preview = " ".join(content.split())[:80]
+        replace = " It REPLACES the existing file." if arguments.get("overwrite") else ""
+        return (
+            f"Write {len(content)} characters to '{arguments.get('path')}'?{replace} "
+            f"Start of the text: \"{preview}\""
+        )
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         path = self._path(arguments, "write")

@@ -1,9 +1,13 @@
+import io
 import json
 import os
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,9 +18,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 # pyrefly: ignore [missing-import]
 from cli.commands.memory import _dispatch_forget, _dispatch_load
 # pyrefly: ignore [missing-import]
+from cli.commands.system import _dispatch_exit
+# pyrefly: ignore [missing-import]
 from cli.session import CliSession
 # pyrefly: ignore [missing-import]
 from mcp.client import MCPClient, safe_environment
+# pyrefly: ignore [missing-import]
+from memory.artifact_manager import ArtifactManager
 # pyrefly: ignore [missing-import]
 from memory.profile_manager import ProfileManager
 # pyrefly: ignore [missing-import]
@@ -27,6 +35,7 @@ from tools.safety import personal_data_warning
 from tools.web_search import WebSearchTool
 
 POSIX = os.name == "posix"
+CLEAN_SESSIONS_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "clean_sessions.sh"
 
 
 def mode(path):
@@ -100,9 +109,20 @@ class PrivateFileTests(TempDirCase):
         existing.write_text("{}")
         os.chmod(existing, 0o644)
 
-        SessionManager(session_id="s1", storage_dir=str(self.sessions)).save()
+        manager = SessionManager(session_id="s1", storage_dir=str(self.sessions))
+        manager.add_message("user", "private")
+        manager.save()
 
         self.assertEqual(mode(existing), 0o600)
+
+    def test_artifact_files_are_owner_only(self):
+        artifacts = ArtifactManager(session_id="s1", storage_dir=str(self.sessions))
+        artifacts.init_document("Suivi PAP Tom Durand")
+        md_path = artifacts.save()
+
+        self.assertEqual(mode(md_path), 0o600)
+        self.assertEqual(mode(md_path.with_suffix(".json")), 0o600)
+        self.assertEqual(mode(self.sessions), 0o700)
 
     def test_profile_is_owner_only(self):
         path = self.root / "profile.json"
@@ -140,47 +160,120 @@ class DeletionTests(TempDirCase):
 
 
 class ForgetCommandTests(TempDirCase):
+    """Two saved conversations, "mine" (current) and "other", each with its artifact."""
+
     def setUp(self):
         super().setUp()
-        self.manager = SessionManager(session_id="mine", storage_dir=str(self.sessions))
-        self.manager.add_message("user", "secret grades")
-        self.manager.save()
-        SessionManager(session_id="other", storage_dir=str(self.sessions)).save()
+        with redirect_stdout(io.StringIO()):
+            self.manager = SessionManager(session_id="mine", storage_dir=str(self.sessions))
+            self.manager.add_message("user", "secret grades")
+            self.manager.save()
+            other = SessionManager(session_id="other", storage_dir=str(self.sessions))
+            other.add_message("user", "other notes")
+            other.save()
+        other_artifact = ArtifactManager(session_id="other", storage_dir=str(self.sessions))
+        other_artifact.init_document("Suivi PAP Lea Martin")
+        other_artifact.save()
+        self.artifacts = ArtifactManager(session_id="mine", storage_dir=str(self.sessions))
+        self.artifacts.init_document("Suivi PAP Tom Durand")
+        self.artifacts.save()
         self.system = {"role": "system", "content": "persona"}
         self.context = SimpleNamespace(
+            feature_config=SimpleNamespace(memory_enabled=True),
             conversation_session=self.manager,
+            artifact_manager=self.artifacts,
             messages=[self.system, {"role": "user", "content": "secret grades"}],
         )
+        self.session = CliSession()
 
     def forget(self, text, confirm=True):
-        with patch("cli.commands.memory.ask_confirmation", return_value=confirm), patch("builtins.print"):
-            _dispatch_forget(text, CliSession(), self.context)
+        output = io.StringIO()
+        with patch("cli.commands.memory.ask_confirmation", return_value=confirm), redirect_stdout(output):
+            _dispatch_forget(text, self.session, self.context)
+        return output.getvalue()
 
-    def test_forget_deletes_this_session_and_clears_memory(self):
-        self.forget("/forget")
+    def saved_files(self):
+        return sorted(path.name for path in self.sessions.iterdir())
 
-        self.assertFalse((self.sessions / "mine.json").exists())
-        self.assertTrue((self.sessions / "other.json").exists())
+    def test_forget_deletes_this_session_and_its_artifact_and_clears_memory(self):
+        output = self.forget("/forget")
+
+        self.assertEqual(
+            self.saved_files(), ["other.json", "other_artifact.json", "other_artifact.md"]
+        )
         self.assertEqual(self.context.messages, [self.system])
         self.assertEqual(self.manager.get_messages(), [])
+        self.assertFalse(self.artifacts.has_artifact())
+        self.assertIn("Saved artifact of this session deleted.", output)
+        self.assertIn("conversation and its artifact were cleared", output)
+
+    def test_exit_after_forget_does_not_recreate_the_forgotten_files(self):
+        self.forget("/forget")
+
+        with redirect_stdout(io.StringIO()):
+            _dispatch_exit("exit", self.session, self.context)
+
+        self.assertTrue(self.session.exit_requested)
+        self.assertNotIn("mine.json", self.saved_files())
+        self.assertNotIn("mine_artifact.md", self.saved_files())
+
+    def test_new_messages_after_forget_are_saved_again(self):
+        self.forget("/forget")
+        self.manager.add_message("user", "a new question")
+
+        with redirect_stdout(io.StringIO()):
+            _dispatch_exit("exit", self.session, self.context)
+
+        self.assertIn("mine.json", self.saved_files())
+        self.assertNotIn("mine_artifact.md", self.saved_files())
 
     def test_forget_all_needs_confirmation(self):
         self.forget("/forget all", confirm=False)
 
-        self.assertEqual(len(list(self.sessions.iterdir())), 2)
+        self.assertEqual(len(self.saved_files()), 6)
         self.assertEqual(len(self.context.messages), 2)
+        self.assertTrue(self.artifacts.has_artifact())
 
-    def test_forget_all_deletes_every_session(self):
-        self.forget("/forget all")
+    def test_forget_all_deletes_every_session_and_artifact_with_accurate_counts(self):
+        output = self.forget("/forget all")
 
-        self.assertEqual(list(self.sessions.iterdir()), [])
+        self.assertEqual(self.saved_files(), [])
         self.assertEqual(self.context.messages, [self.system])
+        self.assertFalse(self.artifacts.has_artifact())
+        self.assertIn("Deleted 2 saved session(s) and 2 saved artifact(s).", output)
 
     def test_unknown_argument_changes_nothing(self):
         self.forget("/forget everything")
 
-        self.assertEqual(len(list(self.sessions.iterdir())), 2)
+        self.assertEqual(len(self.saved_files()), 6)
         self.assertEqual(len(self.context.messages), 2)
+
+
+@unittest.skipUnless(POSIX and shutil.which("bash"), "the cleaning script is a bash script")
+class CleanSessionsScriptTests(TempDirCase):
+    def run_script(self, *arguments):
+        return subprocess.run(
+            ["bash", str(CLEAN_SESSIONS_SCRIPT), *arguments], capture_output=True, text=True, timeout=30
+        )
+
+    def test_deletes_sessions_and_artifacts_and_reports_them(self):
+        self.sessions.mkdir()
+        for name in ("a.json", "b.json", "a_artifact.md", "a_artifact.json"):
+            (self.sessions / name).write_text("Suivi PAP Tom Durand", encoding="utf-8")
+
+        completed = self.run_script(str(self.sessions))
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(list(self.sessions.iterdir()), [])
+        self.assertIn("2 conversation file(s), 2 artifact file(s)", completed.stdout)
+        self.assertIn("successfully deleted", completed.stdout)
+
+    def test_empty_or_missing_folder_is_reported(self):
+        self.assertIn("does not exist", self.run_script(str(self.sessions)).stdout)
+        self.sessions.mkdir()
+        completed = self.run_script(str(self.sessions))
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("No session or artifact files to delete", completed.stdout)
 
 
 class PersonalDataWarningTests(unittest.TestCase):

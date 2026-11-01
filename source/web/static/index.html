@@ -242,8 +242,16 @@ async function loadHistory() {
   for (const m of messages) bubble(m.role, m.content);
 }
 
+// Commands that delete data are confirmed in the page, like their [y/N] question in the terminal.
+const DESTRUCTIVE = { '/rag reset': 'Delete every indexed document, chunk, and embedding permanently?', '/forget all': 'Delete ALL saved conversations? This cannot be undone.' };
+
 async function send(text) {
   if (busy || !text.trim()) return;
+  const destructive = Object.keys(DESTRUCTIVE).find((name) => text.trim() === name);
+  if (destructive) {
+    if (confirm(DESTRUCTIVE[destructive])) command(destructive, true, true);
+    return;
+  }
   setBusy(true);
   bubble('user', text);
   let current = null;

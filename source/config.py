@@ -27,6 +27,8 @@ class ModelConfig:
     base_url: str = "http://localhost:11434"
     temperature: float = 0.2
     context_window: int = 4096
+    # Longest wait for the next part of an Ollama answer before reporting a timeout.
+    request_timeout_seconds: float = 120.0
 
 
 @dataclass(frozen=True)
@@ -43,7 +45,9 @@ class FeatureConfig:
 class RagConfig:
     top_k: int = 3
     max_context_characters: int = 4000
-    relevance_threshold: float = 0.35
+    # Measured with nomic-embed-text on French course questions: on-topic questions score
+    # 0.69-0.85 against their document, unrelated ones 0.40-0.54. 0.6 sits in that gap.
+    relevance_threshold: float = 0.6
 
 
 @dataclass(frozen=True)
@@ -134,6 +138,13 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
         raise ConfigurationError(f"Configuration file not found: {config_path}") from error
     except json.JSONDecodeError as error:
         raise ConfigurationError(f"Invalid JSON in configuration file '{config_path}': {error.msg}") from error
+    except UnicodeDecodeError as error:
+        raise ConfigurationError(f"Configuration file must be UTF-8 text: {config_path}") from error
+    except OSError as error:
+        # A folder instead of a file, missing read permission...
+        raise ConfigurationError(
+            f"Unable to read configuration file '{config_path}': {error.strerror or type(error).__name__}"
+        ) from error
 
     if not isinstance(data, Mapping):
         raise ConfigurationError("The configuration root must be a JSON object.")
@@ -207,6 +218,15 @@ def _number(section: Mapping[str, Any], name: str) -> float:
     return float(value)
 
 
+def _optional_positive_number(section: Mapping[str, Any], name: str, default: float) -> float:
+    if name not in section:
+        return default
+    value = _number(section, name)
+    if value <= 0:
+        raise ConfigurationError(f"'{name}' must be greater than zero.")
+    return value
+
+
 def _integer(section: Mapping[str, Any], name: str, minimum: int) -> int:
     value = section.get(name)
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
@@ -233,6 +253,9 @@ def _read_model(section: Mapping[str, Any]) -> ModelConfig:
         base_url=_string(section, "base_url"),
         temperature=temperature,
         context_window=_integer(section, "context_window", 512),
+        request_timeout_seconds=_optional_positive_number(
+            section, "request_timeout_seconds", ModelConfig().request_timeout_seconds
+        ),
     )
 
 
@@ -326,12 +349,18 @@ def _read_persona(raw_persona: Any, config_directory: Path) -> PersonaConfig:
 
 
 def _read_prompt_file(prompt_file: str, config_directory: Path) -> str:
-    """Load a UTF-8 prompt file relative to the configuration file."""
-    path = (config_directory / prompt_file).resolve()
-    try:
-        path.relative_to(config_directory.resolve())
-    except ValueError as error:
-        raise ConfigurationError("'prompt_file' must stay inside the configuration directory.") from error
+    """Load a UTF-8 prompt file relative to the configuration file, then to the project.
+
+    A configuration kept in a sub-folder (demo/config.json) can reuse the project's
+    prompts/ folder. The file must stay inside one of those two folders, so a
+    configuration cannot turn any file of the computer into a prompt.
+    """
+    allowed_roots = (config_directory.resolve(), PROJECT_ROOT.resolve())
+    candidates = [(root / prompt_file).resolve() for root in allowed_roots]
+    inside = [path for path in candidates if any(_is_inside(path, root) for root in allowed_roots)]
+    if not inside:
+        raise ConfigurationError("'prompt_file' must stay inside the configuration or project directory.")
+    path = next((candidate for candidate in inside if candidate.is_file()), inside[0])
     try:
         content = path.read_text(encoding="utf-8").strip()
     except FileNotFoundError as error:
@@ -343,3 +372,11 @@ def _read_prompt_file(prompt_file: str, config_directory: Path) -> str:
     if not content:
         raise ConfigurationError(f"Persona prompt file must not be empty: {path}")
     return content
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True

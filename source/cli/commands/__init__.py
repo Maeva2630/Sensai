@@ -7,6 +7,7 @@ from cli.commands.memory import MEMORY_COMMANDS
 from cli.commands.metrics import METRICS_COMMANDS
 from cli.commands.persona import PERSONA_COMMANDS
 from cli.commands.rag import RAG_COMMANDS
+from cli.commands.settings import SETTINGS_COMMANDS
 from cli.commands.system import SYSTEM_COMMANDS
 from cli.commands.tools import TOOL_COMMANDS
 from cli.session import CommandDefinition
@@ -17,6 +18,7 @@ GLOBAL_COMMANDS: tuple[CommandDefinition, ...] = (
     *HELP_COMMANDS,
     *DEBUG_COMMANDS,
     *METRICS_COMMANDS,
+    *SETTINGS_COMMANDS,
     *SYSTEM_COMMANDS,
     *PERSONA_COMMANDS,
     *RAG_COMMANDS,

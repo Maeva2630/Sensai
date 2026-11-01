@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from typing import Any
 
 from observability.app_logging import get_logger
@@ -16,12 +15,27 @@ SUMMARY_PREFIX = "[Previous Conversation Summary:"
 SUMMARY_SUFFIX = "]"
 DEFAULT_AUTO_COMPRESSION_THRESHOLD = 0.85
 
+# The summary replaces the older messages: a fact it leaves out is lost for the rest of
+# the conversation, so the prompt lists the facts a teacher expects the assistant to remember.
 SUMMARIZATION_SYSTEM_PROMPT = (
-    "You are an expert conversation summarizer. "
-    "Your role is to produce a concise, factual summary of the following dialogue history between a user and an assistant. "
-    "Focus on key facts, user preferences, decisions, teaching context, rules, and outcomes. "
-    "Do NOT include conversational filler, meta-announcements, or greeting phrases. "
-    "Output ONLY the factual summary text."
+    "You summarize the beginning of a conversation between a teacher (User) and an assistant. "
+    "Your summary replaces those messages: anything you leave out is forgotten.\n"
+    "Keep every fact the teacher stated, with the exact names, numbers and dates, including what "
+    "the teacher said when introducing themselves. Use these lines, and drop a line with nothing to keep:\n"
+    "- Teacher: name, subject, class or grade level, school.\n"
+    "- Pupils and classes: names, numbers (pupils, marks), needs.\n"
+    "- Dates and deadlines: exams, lessons, meetings.\n"
+    "- Decisions and preferences.\n"
+    "- Tasks still open or promised for later.\n"
+    "- Produced by the assistant: one line naming it (lesson plan, quiz, document), without copying it.\n"
+    "Keep the facts of any 'Previous Summary' line as well. "
+    "Write in the language of the conversation, translating the line names. "
+    "Output only the summary, without adding a greeting or a comment of your own."
+)
+# Small local models follow the instruction closest to the end: it is repeated after the dialogue.
+SUMMARIZATION_REQUEST = (
+    "Conversation to summarize:\n<<<\n{dialogue}\n>>>\n"
+    "Write the summary now. Keep the teacher's name, class, numbers, dates, decisions and open tasks."
 )
 
 
@@ -84,8 +98,16 @@ def split_history_for_compression(
     if len(dialogue_pool) < min_dialogue_needed:
         return None
 
-    older_turns = dialogue_pool[:-keep_count]
-    recent_turns = dialogue_pool[-keep_count:]
+    split_index = len(dialogue_pool) - keep_count
+    # A tool result must follow the assistant message that requested it: never start the
+    # kept turns in the middle of a tool exchange, keep the whole exchange instead.
+    while split_index > 0 and dialogue_pool[split_index].get("role") == "tool":
+        split_index -= 1
+    if split_index == 0:
+        return None
+
+    older_turns = dialogue_pool[:split_index]
+    recent_turns = dialogue_pool[split_index:]
     return base_system, older_turns, recent_turns
 
 
@@ -96,20 +118,19 @@ def generate_summary(
     """Call Ollama to generate a factual summary of past dialogue."""
     prompt_messages = [
         {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
-        {"role": "user", "content": f"Dialogue history to condense:\n\n{dialogue_text}"},
+        {"role": "user", "content": SUMMARIZATION_REQUEST.format(dialogue=dialogue_text)},
     ]
     try:
-        response = chat_client.complete_message(prompt_messages)
-        data = response.json() if hasattr(response, "json") else json.loads(response.text)
-        summary = (
-            data.get("message", {}).get("content", "").strip()
-            if isinstance(data, dict)
-            else ""
-        )
-        return summary if summary else None
-    except (OllamaError, Exception) as error:
+        data = chat_client.complete_message(prompt_messages).json()
+    except (OllamaError, ValueError) as error:  # ValueError: the reply is not JSON
         logger.warning("compression.summary_failed error_type=%s", type(error).__name__)
         return None
+    message = data.get("message") if isinstance(data, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    summary = content.strip() if isinstance(content, str) else ""
+    if not summary:
+        logger.warning("compression.summary_empty")
+    return summary or None
 
 
 def create_summary_message(summary_text: str) -> dict[str, Any]:

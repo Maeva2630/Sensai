@@ -1,0 +1,197 @@
+{
+  "version": "rag-eval-fr-v1",
+  "language": "fr",
+  "description": "Business evaluation set for Camille, a 6e mathematics teacher (fictional class 6e B, fractions sequence). Answerable questions can only be answered from the fictional course documents in courses/. Absent questions have no answer in the corpus: the correct behaviour is to say so. Control questions need general knowledge only and measure what RAG mode costs outside the corpus.",
+  "corpus": [
+    "courses/consignes_evaluation.md",
+    "courses/fractions_addition.md",
+    "courses/fractions_equivalentes.md",
+    "courses/nombres_decimaux.md",
+    "courses/progression_6e_B.md",
+    "courses/soutien_fractions.md"
+  ],
+  "scoring": {
+    "expected": "List of groups. Every group must be matched; a group is matched when the normalised answer contains one of its variants. Normalisation: lower case, accents removed, spaces and thin spaces unified, LaTeX and spaced fractions written a/b, hours written 10h30, decimal point written as a comma. A variant starting with 're:' is a regular expression applied to the normalised answer; other variants match as whole words.",
+    "abstention": "An answer abstains when it contains one of the abstention markers defined in scripts/eval_common.py (for example 'cannot find', 'je ne trouve pas', 'n'est pas mentionne', 'il n'y a pas').",
+    "absent_questions": "Outcome 'abstained' when an abstention marker is present; otherwise 'hallucinated' when one of the question's 'invented' patterns matches (a concrete unsupported value such as a date, a price or a number of points); otherwise 'evasive' (no explicit abstention, no invented value). An abstaining answer that also matches an 'invented' pattern is flagged 'hedged_guess' for manual review.",
+    "runaway": "A reply cut by the harness answer-length cap is scored 'runaway' (counted as not correct)."
+  },
+  "questions": [
+    {
+      "id": "A01",
+      "type": "answerable",
+      "quick": true,
+      "question": "Dans quelle salle a lieu le contrôle commun sur les fractions de la 6e B ?",
+      "expected": [["b12"]],
+      "answer": "Salle B12.",
+      "source": "progression_6e_B.md",
+      "tags": ["choose-between-documents"]
+    },
+    {
+      "id": "A02",
+      "type": "answerable",
+      "quick": true,
+      "question": "Quelle est la date du contrôle commun sur les fractions de la 6e B ?",
+      "expected": [["17 decembre", "17/12", "17/12/2026"]],
+      "answer": "Jeudi 17 décembre 2026.",
+      "source": "progression_6e_B.md",
+      "tags": ["time-tool-keyword"]
+    },
+    {
+      "id": "A03",
+      "type": "answerable",
+      "quick": false,
+      "question": "Combien de points vaut l'exercice sur l'addition et la soustraction de fractions dans le barème du contrôle ?",
+      "expected": [["re:(?<![0-9,])6 ?(points?|pts?)\\b", "six points"]],
+      "answer": "6 points.",
+      "source": "consignes_evaluation.md",
+      "tags": []
+    },
+    {
+      "id": "A04",
+      "type": "answerable",
+      "quick": false,
+      "question": "Quel est le coefficient du contrôle commun sur les fractions dans la moyenne du trimestre ?",
+      "expected": [["re:coef\\w*[^0-9.]{0,90}(?<![0-9,])2(?![0-9,])", "compte double"]],
+      "answer": "Coefficient 2.",
+      "source": "consignes_evaluation.md",
+      "tags": []
+    },
+    {
+      "id": "A05",
+      "type": "answerable",
+      "quick": false,
+      "question": "Combien de minutes supplémentaires a un élève avec un PAP pour le contrôle sur les fractions ?",
+      "expected": [["re:\\b17 ?(min|minutes)\\b"]],
+      "answer": "17 minutes (tiers-temps).",
+      "source": "consignes_evaluation.md",
+      "tags": []
+    },
+    {
+      "id": "A06",
+      "type": "answerable",
+      "quick": false,
+      "question": "Quels exercices du manuel faut-il faire après la séance sur les fractions équivalentes ?",
+      "expected": [["87"], ["12"], ["14"]],
+      "answer": "Exercices n°12 et n°14 page 87.",
+      "source": "fractions_equivalentes.md",
+      "tags": ["choose-between-documents"]
+    },
+    {
+      "id": "A07",
+      "type": "answerable",
+      "quick": false,
+      "question": "Dans le cours sur les fractions équivalentes, quelle fraction de la tablette de chocolat Léo a-t-il mangée, et quelle est sa forme simplifiée ?",
+      "expected": [["18/24"], ["3/4", "trois quarts"]],
+      "answer": "18/24, soit 3/4.",
+      "source": "fractions_equivalentes.md",
+      "tags": []
+    },
+    {
+      "id": "A08",
+      "type": "answerable",
+      "quick": false,
+      "question": "Comment s'appelle l'activité d'introduction de la séance sur l'addition de fractions, et combien de temps dure-t-elle ?",
+      "expected": [["partage des crepes", "crepes", "crepe"], ["re:\\b20 ?(min|minutes)\\b"]],
+      "answer": "« Le partage des crêpes », 20 minutes.",
+      "source": "fractions_addition.md",
+      "tags": []
+    },
+    {
+      "id": "A09",
+      "type": "answerable",
+      "quick": true,
+      "question": "Comment la classe appelle-t-elle l'erreur qui consiste à additionner aussi les dénominateurs ?",
+      "expected": [["d+d", "d + d"]],
+      "answer": "L'erreur « D+D ».",
+      "source": "fractions_addition.md",
+      "tags": []
+    },
+    {
+      "id": "A10",
+      "type": "answerable",
+      "quick": false,
+      "question": "Combien de manches compte le jeu Décimal-Express, et combien d'élèves y a-t-il par équipe ?",
+      "expected": [["re:\\b(3|trois) manches"], ["re:\\b(4|quatre) (eleves|joueurs|personnes|membres)", "re:equipes? de (4|quatre)\\b"]],
+      "answer": "3 manches, équipes de 4 élèves.",
+      "source": "nombres_decimaux.md",
+      "tags": []
+    },
+    {
+      "id": "A11",
+      "type": "answerable",
+      "quick": false,
+      "question": "À quelle heure commence l'atelier de soutien sur les fractions, et dans quelle salle a-t-il lieu ?",
+      "expected": [["12h40"], ["b07"]],
+      "answer": "12h40, salle B07.",
+      "source": "soutien_fractions.md",
+      "tags": ["time-tool-keyword", "choose-between-documents"]
+    },
+    {
+      "id": "A12",
+      "type": "answerable",
+      "quick": true,
+      "question": "Combien de points perd un élève qui donne un résultat juste mais non simplifié au contrôle sur les fractions ?",
+      "expected": [["0,5", "re:\\bdemi[- ]?point"]],
+      "answer": "0,5 point.",
+      "source": "consignes_evaluation.md",
+      "tags": []
+    },
+    {
+      "id": "N01",
+      "type": "absent",
+      "quick": true,
+      "question": "Quand a lieu le conseil de classe du premier trimestre de la 6e B ?",
+      "source": null,
+      "reason": "No document mentions the class council.",
+      "invented": ["re:conseil de classe[^.]{0,80}(\\b\\d{1,2}(er)? (janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\\b|\\b(lundi|mardi|mercredi|jeudi|vendredi)\\b)"]
+    },
+    {
+      "id": "N02",
+      "type": "absent",
+      "quick": true,
+      "question": "Combien de points vaut l'exercice de géométrie dans le contrôle sur les fractions ?",
+      "source": null,
+      "reason": "The test has no geometry exercise (false premise).",
+      "invented": ["re:geometr[^.]{0,80}\\b\\d+(,\\d+)? ?(points?|pts?)\\b", "re:\\b\\d+(,\\d+)? ?(points?|pts?)\\b[^.]{0,80}geometr"]
+    },
+    {
+      "id": "N03",
+      "type": "absent",
+      "quick": false,
+      "question": "Quel est le prix de la sortie scolaire au musée des Arts et Métiers prévue pour la 6e B ?",
+      "source": null,
+      "reason": "No school trip is described in the corpus.",
+      "invented": ["re:\\b\\d+(,\\d+)? ?(euros?|eur\\b|\u20ac)"]
+    },
+    {
+      "id": "N04",
+      "type": "absent",
+      "quick": false,
+      "question": "Quelle moyenne faut-il obtenir au contrôle sur les fractions pour avoir les félicitations au bulletin ?",
+      "source": null,
+      "reason": "The corpus gives no threshold for report-card distinctions.",
+      "invented": ["re:\\b\\d+(,\\d+)? ?(/ ?20|sur 20)\\b", "re:(moyenne|note)[^.]{0,30}\\b(1[0-9]|20)(,\\d+)?\\b"]
+    },
+    {
+      "id": "C01",
+      "type": "control",
+      "quick": false,
+      "question": "Quelle est l'écriture décimale de 1/8 ?",
+      "expected": [["0,125"]],
+      "answer": "0,125.",
+      "source": null,
+      "tags": ["outside-knowledge"]
+    },
+    {
+      "id": "C02",
+      "type": "control",
+      "quick": false,
+      "question": "Combien de côtés a un hexagone ?",
+      "expected": [["re:(?<![0-9,])6(?![0-9,])", "six"]],
+      "answer": "6.",
+      "source": null,
+      "tags": ["outside-knowledge"]
+    }
+  ]
+}
