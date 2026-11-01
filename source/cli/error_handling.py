@@ -51,11 +51,16 @@ _UNEXPECTED_ERROR = (
 )
 
 
-def report_cli_error(error: Exception, logger: logging.Logger) -> None:
-    """Log diagnostic details and display a concise, safe terminal message."""
+def format_cli_error(error: Exception, logger: logging.Logger) -> str:
+    """Log diagnostic details and return a concise, safe message for the user."""
     category, message = _user_message(error)
     logger.exception("cli.error category=%s error_type=%s", category, type(error).__name__)
-    print(f"\n{message}")
+    return message
+
+
+def report_cli_error(error: Exception, logger: logging.Logger) -> None:
+    """Log diagnostic details and display a concise, safe terminal message."""
+    print(f"\n{format_cli_error(error, logger)}")
 
 
 def _user_message(error: Exception) -> tuple[str, str]:

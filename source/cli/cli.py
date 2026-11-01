@@ -2,6 +2,7 @@ import atexit
 import json
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
@@ -110,8 +111,12 @@ def stream_response(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     token_counts: dict[str, int] | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Stream one model response and return its text and requested tool calls."""
+    """Stream one model response and return its text and requested tool calls.
+
+    Text is printed on the terminal, or handed to `on_token` when a frontend supplies one.
+    """
     full_response = ""
     raw_tool_calls: list[dict[str, Any]] = []
     printed_prefix = False
@@ -133,10 +138,13 @@ def stream_response(
         if not isinstance(content, str):
             raise OllamaResponseError("Ollama returned a response with invalid text content.")
         if content:
-            if not printed_prefix:
-                print(assistant_prefix(), end="", flush=True)
-                printed_prefix = True
-            print(content, end="", flush=True)
+            if on_token is not None:
+                on_token(content)
+            else:
+                if not printed_prefix:
+                    print(assistant_prefix(), end="", flush=True)
+                    printed_prefix = True
+                print(content, end="", flush=True)
             full_response += content
         tool_calls = message.get("tool_calls") or []
         if not isinstance(tool_calls, list):

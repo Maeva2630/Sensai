@@ -21,6 +21,18 @@ def main():
         help="Profile path to use (default: profile.json)"
     )
 
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Start the web interface instead of the terminal chat"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port of the web interface (default: 8000)"
+    )
+
     args = parser.parse_args()
 
     try:
@@ -43,11 +55,20 @@ def main():
         app_config.features.memory_enabled,
     )
     try:
-        cli(
-            session_id=args.session,
-            profile_path=args.profile,
-            app_config=app_config,
-        )
+        if args.web:
+            from web.app import WebApp
+            from web.server import serve
+
+            serve(
+                WebApp(app_config, session_id=args.session, profile_path=args.profile),
+                args.port,
+            )
+        else:
+            cli(
+                session_id=args.session,
+                profile_path=args.profile,
+                app_config=app_config,
+            )
     except Exception as error:
         report_cli_error(error, logger)
 

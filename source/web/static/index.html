@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SensAI</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --border: #dde1e6; --text: #1d2430; --muted: #6b7686;
+    --accent: #2f6fed; --on-accent: #fff; --accent-soft: #e8f0ff; --warn: #b45309; --warn-soft: #fff4e0;
+    --ok: #15803d; --danger: #b91c1c; --input-bg: #fff; --danger-soft: #fdecec; --ok-soft: #e6f4ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --panel: #1c2027; --border: #313844; --text: #e6e9ee; --muted: #9aa5b5;
+      --accent: #4c8dff; --on-accent: #0b1220; --accent-soft: #1f2c44; --warn: #f0b052; --warn-soft: #33281a;
+      --ok: #5fd08a; --danger: #ff7b7b; --input-bg: #14171c; --danger-soft: #3a1f22; --ok-soft: #1b3025;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; font: 15px/1.5 system-ui, sans-serif; color: var(--text); background: var(--bg); }
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; padding: 0 12px; min-height: 34px; line-height: 1.3; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger { color: var(--danger); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, select, textarea { width: 100%; padding: 6px 8px; min-height: 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--input-bg); color: var(--text); }
+  textarea { line-height: 1.4; }
+  label { display: block; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+
+  aside { width: 320px; flex: none; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 18px 16px 24px; scrollbar-width: thin; }
+  aside h1 { margin: 0 0 2px; font-size: 22px; }
+  aside .sub { line-height: 1.4; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--ok-soft); color: var(--ok); }
+  .badge.net { background: var(--warn-soft); color: var(--warn); }
+  details { border-top: 1px solid var(--border); padding: 12px 0; margin-top: 12px; }
+  details:first-of-type { margin-top: 14px; }
+  summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+  details > div { margin-top: 10px; }
+  details > div > button { display: block; }
+  details > div > button + .sub, details > div > .sub + * { margin-top: 6px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row > div { min-width: 0; }
+  .row > * { flex: 1; }
+  .row > button { flex: none; }
+  .check { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); font-size: 14px; }
+  .check input { width: auto; min-height: 0; margin: 0; }
+  ul.list { list-style: none; margin: 8px 0; padding: 0; }
+  ul.list li { overflow-wrap: anywhere; }
+  ul.list li { padding: 6px 8px; line-height: 1.35; border-radius: 6px; font-size: 13px; }
+  ul.list li.click { cursor: pointer; }
+  ul.list li.click:hover { background: var(--accent-soft); }
+  ul.list li small { display: block; color: var(--muted); margin-top: 1px; }
+  .meter { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+  .meter > div { height: 100%; background: var(--accent); width: 0; }
+  .meter.high > div { background: var(--warn); }
+  [hidden] { display: none !important; }
+  #quiz-downloads { margin-top: 12px; }
+  .dl-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  a.btn { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 12px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); background: var(--panel); text-decoration: none; font-size: 14px; }
+  a.btn:hover { background: var(--accent-soft); }
+  a.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .msg-line { overflow-wrap: anywhere; font-size: 13px; color: var(--muted); margin-top: 6px; white-space: pre-wrap; }
+
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #banners:empty { display: none; }
+  .banner { padding: 8px 16px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--border); font-size: 14px; }
+  #chat { flex: 1; overflow-y: auto; padding: 20px; scrollbar-width: thin; }
+  .bubble { width: fit-content; max-width: min(780px, 100%); margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bubble.user { background: var(--accent); color: var(--on-accent); margin-left: auto; }
+  .bubble.assistant { background: var(--panel); border: 1px solid var(--border); }
+  .bubble.notice { background: var(--accent-soft); font-size: 14px; }
+  .bubble.error { background: var(--danger-soft); color: var(--danger); }
+  .bubble.sources { background: none; padding: 0 14px; color: var(--muted); font-size: 13px; margin-top: -10px; }
+  .bubble.tool { background: none; padding: 0 14px; color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; margin-top: -10px; }
+  .bubble.confirm { background: var(--warn-soft); border: 1px solid var(--warn); }
+  .bubble.confirm .row { margin-top: 8px; }
+  #empty { color: var(--muted); max-width: 640px; margin: 40px auto; text-align: center; }
+  #empty button { margin: 4px; min-height: 38px; padding: 6px 14px; }
+  form#composer { display: flex; gap: 8px; align-items: stretch; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--panel); }
+  form#composer textarea { resize: none; height: 46px; }
+  form#composer button { min-height: 46px; padding: 0 20px; }
+  @media (max-width: 800px) { body { flex-direction: column; height: auto; } aside { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); overflow-y: visible; } #chat { min-height: 60vh; padding: 14px; } form#composer { padding: 10px 14px; } .banner { padding: 8px 14px; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>SensAI</h1>
+  <div class="sub"><span id="model"></span> <span id="net" class="badge">Works offline</span></div>
+
+  <details open>
+    <summary>My course documents</summary>
+    <div>
+      <input type="file" id="file" hidden multiple accept=".txt,.md,.pdf,.docx,.zip,.html,.json,.csv">
+      <button id="upload" class="primary" style="width:100%">Add a document</button>
+      <div class="sub">PDF, Word, text, Markdown or a ZIP of them.</div>
+      <ul class="list" id="docs"></ul>
+      <label class="check"><input type="checkbox" id="rag"> Answer from my documents</label>
+      <label class="check"><input type="checkbox" id="sources"> Show which document was used</label>
+      <div class="msg-line" id="upload-msg"></div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Create a quiz</summary>
+    <div>
+      <label for="quiz-topic">Topic</label>
+      <input id="quiz-topic" placeholder="e.g. The water cycle">
+      <div class="row">
+        <div><label for="quiz-count">Questions</label><input id="quiz-count" type="number" min="1" max="20" value="5"></div>
+        <div><label for="quiz-lang">Language</label><input id="quiz-lang" placeholder="profile language"></div>
+      </div>
+      <button id="quiz-go" class="primary" style="width:100%;margin-top:10px">Generate quiz</button>
+      <div id="quiz-downloads" hidden>
+        <div class="sub">Download the quiz</div>
+        <div class="dl-row">
+          <a class="btn" id="dl-teacher" href="/api/quiz/download?answers=1" download>With answers</a>
+          <a class="btn" id="dl-student" href="/api/quiz/download?answers=0" download>For students</a>
+          <a class="btn" id="dl-json" href="/api/quiz/download?answers=1&amp;format=json" download>JSON</a>
+        </div>
+      </div>
+      <div class="sub" style="margin-top:6px">Always read the answer key before using a quiz.</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Assistant style</summary>
+    <div><select id="persona"></select></div>
+  </details>
+
+  <details>
+    <summary>My profile</summary>
+    <div>
+      <label for="p-name">Name</label><input id="p-name">
+      <label for="p-lang">Preferred language</label><input id="p-lang">
+      <label for="p-expertise">Subject / expertise</label><input id="p-expertise">
+      <label for="p-constraints">Constraints (one per line)</label><textarea id="p-constraints" rows="3"></textarea>
+      <button id="p-save" style="margin-top:8px">Save profile</button>
+      <span class="sub" id="p-msg"></span>
+    </div>
+  </details>
+
+  <details>
+    <summary>Conversations</summary>
+    <div>
+      <div class="row"><button id="new">New conversation</button><button id="forget" class="danger">Delete this one</button></div>
+      <ul class="list" id="sessions"></ul>
+      <button id="forget-all" class="danger">Delete all saved conversations</button>
+      <div class="sub">Conversations are saved on this computer only.</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Working document</summary>
+    <div>
+      <div id="artifact-empty" class="sub">No document yet. Ask the assistant to draft one (a lesson plan, for example).</div>
+      <div id="artifact" hidden>
+        <strong id="artifact-title"></strong> <span class="sub" id="artifact-version"></span>
+        <ul class="list" id="artifact-sections"></ul>
+        <div class="dl-row"><a class="btn" href="/api/artifact/download" download>Download (Markdown)</a></div>
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Memory</summary>
+    <div>
+      <div class="meter" id="meter"><div></div></div>
+      <div class="sub" id="meter-text"></div>
+      <button id="compress" style="margin-top:6px">Summarise older messages</button>
+    </div>
+  </details>
+
+  <details>
+    <summary>What the assistant can do</summary>
+    <div><ul class="list" id="tools"></ul></div>
+  </details>
+</aside>
+
+<main>
+  <div id="banners"></div>
+  <div id="chat"></div>
+  <form id="composer">
+    <textarea id="input" placeholder="Ask for a lesson plan, an explanation, an exercise... (Enter to send, Shift+Enter for a new line)"></textarea>
+    <button class="primary" id="send">Send</button>
+  </form>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const chat = $('chat');
+let busy = false;
+let state = null;
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+async function api(path, body, method = 'POST') {
+  const options = method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) };
+  const response = await fetch(path, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+// ---------------------------------------------------------------- chat area
+
+function bubble(kind, text) {
+  $('empty')?.remove();
+  const node = el('div', 'bubble ' + kind, text);
+  chat.appendChild(node);
+  chat.scrollTop = chat.scrollHeight;
+  return node;
+}
+
+function showEmpty() {
+  chat.replaceChildren();
+  const box = el('div');
+  box.id = 'empty';
+  box.append(el('h2', '', 'How can I help with your class today?'));
+  for (const text of ['Prepare a lesson plan on fractions for 10-year-olds', 'Explain photosynthesis in simple words', 'Write 3 exercises on the past tense']) {
+    const button = el('button', '', text);
+    button.onclick = () => { $('input').value = text; $('input').focus(); };
+    box.append(button);
+  }
+  chat.append(box);
+}
+
+async function loadHistory() {
+  const { messages } = await api('/api/history', null, 'GET');
+  chat.replaceChildren();
+  if (!messages.length) showEmpty();
+  for (const m of messages) bubble(m.role, m.content);
+}
+
+async function send(text) {
+  if (busy || !text.trim()) return;
+  setBusy(true);
+  bubble('user', text);
+  let current = null;
+  try {
+    const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
+    if (!response.ok) throw new Error((await response.json()).error || 'Request failed');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newline;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line.trim()) current = handleEvent(JSON.parse(line), current);
+      }
+    }
+  } catch (error) {
+    bubble('error', 'Could not reach SensAI: ' + error.message);
+  }
+  setBusy(false);
+  refreshSessions();
+}
+
+function handleEvent(event, current) {
+  switch (event.type) {
+    case 'token':
+      current = current || bubble('assistant', '');
+      current.textContent += event.text;
+      chat.scrollTop = chat.scrollHeight;
+      return current;
+    case 'tool': bubble('tool', event.text.length > 300 ? event.text.slice(0, 300) + '...' : event.text); return null;
+    case 'sources': bubble('sources', event.text); return null;
+    case 'notice': bubble('notice', event.text); return null;
+    case 'error': bubble('error', event.text); return null;
+    case 'confirm': askConfirmation(event); return null;
+    case 'done': render(event.state); return null;
+  }
+  return current;
+}
+
+function askConfirmation(event) {
+  const card = bubble('confirm', event.question);
+  const row = el('div', 'row');
+  const answer = async (approved) => {
+    row.replaceChildren(el('span', 'sub', approved ? 'Allowed.' : 'Cancelled.'));
+    await api('/api/confirm', { id: event.id, approved });
+  };
+  const allow = el('button', 'primary', 'Allow'); allow.type = 'button'; allow.onclick = () => answer(true);
+  const cancel = el('button', '', 'Cancel'); cancel.type = 'button'; cancel.onclick = () => answer(false);
+  row.append(allow, cancel);
+  card.append(row);
+}
+
+function setBusy(value) {
+  busy = value;
+  $('send').disabled = value;
+  $('input').disabled = value;
+  if (!value) $('input').focus();
+}
+
+$('composer').onsubmit = (event) => {
+  event.preventDefault();
+  const text = $('input').value;
+  $('input').value = '';
+  send(text);
+};
+$('input').onkeydown = (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('composer').requestSubmit(); }
+};
+
+// ----------------------------------------------------------------- sidebar
+
+function render(next) {
+  state = next;
+  $('model').textContent = state.model;
+  const net = $('net');
+  net.textContent = state.features.network ? 'Internet allowed (asks first)' : 'Works offline';
+  net.className = 'badge' + (state.features.network ? ' net' : '');
+
+  const docs = $('docs');
+  docs.replaceChildren();
+  for (const d of state.documents) docs.append(el('li', '', `${d.name} (${d.chunks} parts)`));
+  if (!state.documents.length) docs.append(el('li', 'sub', 'No document yet.'));
+  $('rag').checked = state.rag_enabled;
+  $('rag').disabled = !state.features.rag;
+  $('sources').checked = state.show_sources;
+
+  const persona = $('persona');
+  persona.replaceChildren(...state.personas.map((p) => { const o = el('option', '', p.name); o.value = p.id; o.selected = p.id === state.persona; return o; }));
+
+  for (const [id, key] of [['p-name', 'user_name'], ['p-lang', 'preferred_language'], ['p-expertise', 'domain_expertise']]) {
+    if (document.activeElement !== $(id)) $(id).value = state.profile[key] || '';
+  }
+  if (document.activeElement !== $('p-constraints')) $('p-constraints').value = (state.profile.constraints || []).join('\n');
+  $('quiz-lang').placeholder = state.profile.preferred_language || 'English';
+  $('quiz-downloads').hidden = !state.has_quiz;
+
+  const ratio = state.tokens.context / Math.max(1, state.tokens.window);
+  $('meter').firstElementChild.style.width = Math.min(100, ratio * 100) + '%';
+  $('meter').className = 'meter' + (ratio >= 0.8 ? ' high' : '');
+  $('meter-text').textContent = `${state.tokens.context} / ${state.tokens.window} tokens used by this conversation`;
+  $('compress').disabled = !state.features.memory;
+
+  $('artifact-empty').hidden = !!state.artifact;
+  $('artifact').hidden = !state.artifact;
+  if (state.artifact) {
+    $('artifact-title').textContent = state.artifact.title;
+    $('artifact-version').textContent = 'v' + state.artifact.version;
+    $('artifact-sections').replaceChildren(...state.artifact.sections.map((name) => el('li', '', name)));
+  }
+
+  const tools = $('tools');
+  tools.replaceChildren();
+  for (const t of state.tools) {
+    const li = el('li', '', t.name);
+    li.append(el('small', '', t.description));
+    tools.append(li);
+  }
+  if (!state.tools.length) tools.append(el('li', 'sub', 'Tools are turned off in config.json.'));
+}
+
+async function refreshSessions() {
+  const { sessions } = await api('/api/sessions', null, 'GET');
+  const list = $('sessions');
+  list.replaceChildren();
+  for (const s of sessions) {
+    const li = el('li', 'click', s.preview);
+    li.append(el('small', '', s.timestamp.slice(0, 16).replace('T', ' ')));
+    li.onclick = () => command('/load ' + s.id, true);
+    list.append(li);
+  }
+  if (!sessions.length) list.append(el('li', 'sub', 'No saved conversation.'));
+}
+
+// Run a slash command from a button; its output is shown in the chat.
+async function command(text, reloadChat = false, confirmed = false) {
+  if (busy) return;
+  try {
+    const data = await api('/api/command', { command: text, confirmed });
+    render(data.state);
+    if (reloadChat) await loadHistory();
+    if (data.output) bubble('notice', data.output);
+  } catch (error) { bubble('error', error.message); }
+  refreshSessions();
+}
+
+$('rag').onchange = (e) => command(e.target.checked ? '/rag on' : '/rag off');
+$('sources').onchange = (e) => command(e.target.checked ? '/sources on' : '/sources off');
+$('persona').onchange = (e) => command('/persona use ' + e.target.value);
+$('compress').onclick = () => command('/compress');
+$('forget').onclick = () => { if (confirm('Delete the saved copy of this conversation and clear it?')) command('/forget', true); };
+$('forget-all').onclick = () => { if (confirm('Delete ALL saved conversations? This cannot be undone.')) command('/forget all', true, true); };
+$('new').onclick = async () => {
+  if (busy) return;
+  render((await api('/api/new')).state);
+  await loadHistory();
+  refreshSessions();
+};
+
+$('upload').onclick = () => $('file').click();
+$('file').onchange = async () => {
+  const files = [...$('file').files];
+  $('file').value = '';
+  for (const file of files) {
+    $('upload-msg').textContent = `Reading ${file.name}... this can take a moment.`;
+    try {
+      const response = await fetch('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      render(data.state);
+      $('upload-msg').textContent = data.output;
+    } catch (error) { $('upload-msg').textContent = error.message; }
+  }
+};
+
+$('quiz-go').onclick = async () => {
+  if (busy || !$('quiz-topic').value.trim()) return;
+  setBusy(true);
+  $('quiz-go').textContent = 'Generating...';
+  try {
+    const data = await api('/api/quiz', { topic: $('quiz-topic').value, questions: Number($('quiz-count').value), language: $('quiz-lang').value });
+    render(data.state);
+    bubble('assistant', data.output);
+  } catch (error) { bubble('error', error.message); }
+  $('quiz-go').textContent = 'Generate quiz';
+  setBusy(false);
+};
+
+$('p-save').onclick = async () => {
+  try {
+    render((await api('/api/profile', {
+      user_name: $('p-name').value, preferred_language: $('p-lang').value, domain_expertise: $('p-expertise').value,
+      constraints: $('p-constraints').value.split('\n'),
+    })).state);
+    $('p-msg').textContent = ' Saved.';
+  } catch (error) { $('p-msg').textContent = ' ' + error.message; }
+};
+
+// -------------------------------------------------------------------- start
+
+async function start() {
+  const first = await api('/api/state', null, 'GET');
+  render(first);
+  const banners = $('banners');
+  if (first.model_problem) banners.append(el('div', 'banner', first.model_problem));
+  for (const w of first.warnings) banners.append(el('div', 'banner', w));
+  await loadHistory();
+  refreshSessions();
+  $('input').focus();
+}
+start().catch((error) => bubble('error', 'Could not start: ' + error.message));
+</script>
+</body>
+</html>
