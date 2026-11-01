@@ -11,6 +11,7 @@ For the complete `config.json` format and setting reference, see
 - [Personas](personas.md): choose or configure the assistant's role and prompt.
 - [Sessions and profile](sessions-and-profile.md): save conversation text and configure
   information supplied to the assistant.
+- [Web interface](web-interface.md): use SensAI from a browser instead of a terminal.
 - [Logging and monitoring](observability.md): inspect model requests and local metrics.
 
 All model-generated text should be reviewed. A persona is an instruction, not a guarantee

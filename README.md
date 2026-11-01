@@ -1,6 +1,6 @@
 # SensAI
 
-SensAI is a local, command-line AI assistant for primary and secondary-school teachers.
+SensAI is a local AI assistant (terminal or web page) for primary and secondary-school teachers.
 It helps prepare lessons, activities, assessments, and educational resources while keeping
 documents, conversations, and metrics on the local machine. Model-generated content must
 always be reviewed by the teacher.
@@ -36,6 +36,12 @@ Start SensAI and type `/help` to see the available commands:
 python3 source/main.py
 ```
 
+Teachers who prefer not to use a terminal can run the same assistant as a local web page:
+
+```bash
+python3 source/main.py --web          # opens http://localhost:8000
+```
+
 Model names, feature switches, local paths, and generation settings are configured in
 [`config.json`](config.json). Read the [user guide](docs/user-guide.md) before changing
 the configuration. The [configuration reference](docs/configuration.md) explains the
@@ -49,6 +55,7 @@ file format, location, required sections, optional settings, defaults, and valid
 | Tools, quizzes, and MCP | Provides local tools, generated quizzes, controlled file export, and tools from configured MCP servers. | [Tools and MCP](docs/features/tools-and-mcp.md) |
 | Personas | Configures assistant roles and switches between profiles during a conversation. | [Personas](docs/features/personas.md) |
 | Sessions and profile | Saves conversations, loads previous sessions, applies a local user profile, and manages the context budget. | [Sessions and profile](docs/features/sessions-and-profile.md) |
+| Web interface | Runs the same assistant in a local web page with buttons for documents, quizzes, personas, profile, conversations, and memory. | [Web interface](docs/features/web-interface.md) |
 | Observability | Provides local application logs, on-demand prompt inspection, and an optional metrics dashboard. | [Logging and monitoring](docs/features/observability.md) |
 
 ## Current limitations
