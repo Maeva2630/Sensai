@@ -4,4 +4,5 @@ target-version = "py310"
 # Focus on likely runtime mistakes and unused imports without imposing a broad
 # formatting policy on existing code.
 # https://docs.astral.sh/ruff/rules/
-select = ["E9", "F63", "F7", "F82", "F401"]
+# F811 catches a test method redefined with the same name: the first copy never runs.
+select = ["E9", "F63", "F7", "F82", "F401", "F811"]

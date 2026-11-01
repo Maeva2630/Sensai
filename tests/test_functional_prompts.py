@@ -11,9 +11,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cli.cli import CliDependencies, cli
 from mcp.manager import MCPManager
+from support import use_temporary_working_directory_for_module
 from rag.context import PreparedContext
 from rag.storage import MetadataFilter, SearchResult
 
@@ -34,6 +36,8 @@ def setUpModule():
     patcher = patch("cli.cli.MCPManager.from_config_file", return_value=MCPManager([]))
     patcher.start()
     unittest.addModuleCleanup(patcher.stop)
+    # cli() saves sessions/, profile.json and data/ in the current directory: not in the repository.
+    use_temporary_working_directory_for_module()
 
 
 class TestPromptWorkflows(unittest.TestCase):
