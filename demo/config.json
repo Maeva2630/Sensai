@@ -1,0 +1,53 @@
+{
+  "model": {
+    "chat_model": "qwen2.5:3b",
+    "fallback_chat_models": ["llama3.2:latest"],
+    "embedding_model": "nomic-embed-text",
+    "base_url": "http://localhost:11434",
+    "temperature": 0.2,
+    "context_window": 4096
+  },
+  "features": {
+    "rag_enabled": true,
+    "tools_enabled": true,
+    "memory_enabled": true,
+    "source_display_enabled": true,
+    "network_enabled": true
+  },
+  "rag": {
+    "top_k": 3,
+    "max_context_characters": 4000,
+    "relevance_threshold": 0.35
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/sensai.log"
+  },
+  "monitoring": {
+    "enabled": true,
+    "database_path": "data/sensai_monitoring.sqlite3",
+    "retention_days": 30,
+    "prompt_version": "default-v1"
+  },
+  "personas": {
+    "active_persona": "teacher-assistant",
+    "profiles": [
+      {
+        "identifier": "teacher-assistant",
+        "display_name": "Teacher assistant",
+        "role": "Educational assistant for teachers and educators",
+        "tone": "Clear, practical, supportive, and pedagogical",
+        "prompt_file": "prompts/teacher-assistant.txt",
+        "response_scope": "Support educators with lesson preparation, teaching resources, and assessment."
+      },
+      {
+        "identifier": "mathematics-assistant",
+        "display_name": "Mathematics assistant",
+        "role": "Educational assistant for mathematics teachers",
+        "tone": "Precise, practical, and pedagogical",
+        "prompt_file": "prompts/mathematics-assistant.txt",
+        "response_scope": "Support mathematics teachers with lessons, exercises, assessments, and differentiation."
+      }
+    ]
+  }
+}
