@@ -149,7 +149,7 @@ class TestFormatToolListing(unittest.TestCase):
 
         listing = format_tool_listing(registry.list_tools())
 
-        self.assertIn("- get_time [native]: Get the current local date and time.", listing)
+        self.assertIn("- get_time [native]: Get the current local date, weekday, time and time zone of this computer.", listing)
         self.assertIn("- alpha__echo [alpha]: Echo a text.", listing)
 
     def test_no_tools(self):
@@ -158,3 +158,36 @@ class TestFormatToolListing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMCPToolRouting(unittest.TestCase):
+
+    def test_tools_are_offered_only_for_their_server_keywords(self):
+        server = MCPServerConfig("teacher", sys.executable, [FAKE_SERVER], {}, 5.0, keywords=["moyenne", "minuteur"])
+        manager = MCPManager([server])
+        self.addCleanup(manager.close)
+        manager.start()
+        registry = ToolRegistry()
+        manager.register_tools(registry)
+
+        self.assertEqual(registry.to_ollama_tools("Écris une activité sur les fractions"), [])
+        self.assertEqual(len(registry.to_ollama_tools("Calcule la moyenne de Léa")), 4)
+        self.assertEqual(len(registry.to_ollama_tools("Lance un minuteur de 10 minutes")), 4)
+
+    def test_tools_without_keywords_stay_always_offered(self):
+        manager = MCPManager([fake_server("alpha")])
+        self.addCleanup(manager.close)
+        manager.start()
+
+        self.assertTrue(all(tool.is_relevant_for("anything") for tool in manager.tools))
+
+    def test_a_tool_definition_without_a_name_is_skipped_with_a_warning(self):
+        from unittest.mock import patch
+
+        with patch("mcp.manager.MCPClient") as client_class:
+            client_class.return_value.list_tools.return_value = [{"description": "no name"}, {"name": "ok"}]
+            manager = MCPManager([fake_server("alpha")])
+            warnings = manager.start()
+
+        self.assertEqual([tool.name for tool in manager.tools], ["alpha__ok"])
+        self.assertIn("without a valid name", warnings[0])

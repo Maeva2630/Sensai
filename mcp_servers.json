@@ -3,13 +3,19 @@
     "teacher": {
       "command": "python3",
       "args": ["source/mcp/servers/teacher_tools.py"],
-      "timeout": 10
+      "timeout": 10,
+      "keywords": [
+        "note", "moyenne", "coefficient", "bulletin", "statistique", "médiane", "mediane",
+        "taux de réussite", "sur 20", "minuteur", "chrono", "compte à rebours",
+        "grades", "marks", "average", "median", "pass rate", "statistic", "timer", "countdown"
+      ]
     },
     "web": {
       "command": "uvx",
       "args": ["mcp-server-fetch"],
       "timeout": 60,
-      "network": true
+      "network": true,
+      "keywords": ["http", "www.", "url", "lien", "link", "page web", "web page", "site", "fetch"]
     }
   }
 }

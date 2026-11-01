@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from mcp.client import MCPClient, MCPError, MCPTimeoutError, MCPToolError
@@ -25,14 +26,27 @@ class MCPTool(Tool):
 
     untrusted = True
 
-    def __init__(self, server: str, client: MCPClient, definition: Dict[str, Any], network: bool = False):
+    def __init__(self, server: str, client: MCPClient, definition: Dict[str, Any], network: bool = False,
+                 keywords: Optional[List[str]] = None):
         self.server = server
         self.network = network
+        self.keywords = [word.lower() for word in keywords or []]
         self.remote_name = definition["name"]
         self.name = f"{server}__{self.remote_name}"
         self.description = definition.get("description") or f"Tool '{self.remote_name}' from MCP server '{server}'."
         self.parameters = _object_schema(definition.get("inputSchema"))
         self._client = client
+
+    def is_relevant_for(self, user_input: str) -> bool:
+        """Offer the tool when the request uses one of its server's keywords.
+
+        Offering every MCP tool on every message made the 3B model call a grade
+        calculator or a timer on ordinary lesson requests.
+        """
+        if not self.keywords:
+            return True
+        text = user_input.lower()
+        return any(re.search(rf"(?<!\w){re.escape(word)}", text) for word in self.keywords)
 
     def confirmation_prompt(self, arguments: Dict[str, Any]) -> str | None:
         if not self.network:
@@ -80,16 +94,22 @@ class MCPManager:
         """
         warnings = list(self._config_warnings)
         for server in self._servers:
-            client = MCPClient(server.command, server.args, server.env or None, server.timeout)
+            client = MCPClient(server.command, server.args, server.env or None, server.timeout, server.cwd)
+            # Registered before the handshake so Ctrl+C during a slow start still stops the process.
+            self._clients.append(client)
             try:
                 client.start()
                 definitions = client.list_tools()
             except MCPError as e:
+                self._clients.remove(client)
                 client.close()
                 warnings.append(f"MCP server '{server.name}' unavailable: {e}")
                 continue
-            self._clients.append(client)
-            self._tools.extend(MCPTool(server.name, client, definition, server.network) for definition in definitions)
+            for definition in definitions:
+                if not isinstance(definition, dict) or not isinstance(definition.get("name"), str) or not definition["name"]:
+                    warnings.append(f"MCP server '{server.name}' sent a tool without a valid name: skipped")
+                    continue
+                self._tools.append(MCPTool(server.name, client, definition, server.network, server.keywords))
         return warnings
 
     def register_tools(self, registry: ToolRegistry) -> List[str]:

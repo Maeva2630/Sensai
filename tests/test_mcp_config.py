@@ -72,3 +72,45 @@ class TestLoadMCPConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMCPRoutingAndLocation(unittest.TestCase):
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = os.path.join(self.directory.name, "mcp_servers.json")
+
+    def write(self, content):
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(content))
+
+    def test_keywords_are_loaded_and_validated(self):
+        self.write({"mcpServers": {
+            "teacher": {"command": "python3", "keywords": [" moyenne ", "minuteur"]},
+            "broken": {"command": "python3", "keywords": "moyenne"},
+        }})
+        servers, warnings = load_mcp_config(self.path)
+
+        self.assertEqual(servers[0].keywords, ["moyenne", "minuteur"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("'keywords' must be a list", warnings[0])
+
+    def test_servers_run_in_the_folder_of_their_configuration(self):
+        self.write({"mcpServers": {"teacher": {"command": "python3", "args": ["server.py"]}}})
+        servers, _ = load_mcp_config(self.path)
+
+        self.assertEqual(servers[0].cwd, os.path.dirname(os.path.abspath(self.path)))
+
+    def test_default_configuration_is_the_project_file_not_the_working_directory(self):
+        from mcp.config import DEFAULT_CONFIG_PATH, PROJECT_ROOT
+
+        self.assertTrue(os.path.isabs(DEFAULT_CONFIG_PATH))
+        self.assertEqual(os.path.dirname(DEFAULT_CONFIG_PATH), PROJECT_ROOT)
+        self.assertTrue(os.path.exists(os.path.join(PROJECT_ROOT, "source", "main.py")))
+
+    def test_python_servers_use_the_interpreter_running_sensai(self):
+        from mcp.client import _interpreter
+
+        self.assertEqual(_interpreter("python3"), sys.executable)
+        self.assertEqual(_interpreter("uvx"), "uvx")
