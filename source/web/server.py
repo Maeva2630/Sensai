@@ -76,6 +76,8 @@ def make_handler(app: WebApp, port: int) -> type[BaseHTTPRequestHandler]:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError:
                 raise RequestRefused("Invalid Content-Length.") from None
+            if length < 0:  # rfile.read(-1) would read everything, past the limit
+                raise RequestRefused("Invalid Content-Length.")
             if length > limit:
                 raise RequestRefused("The request is too large.", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return self.rfile.read(length)
