@@ -53,7 +53,7 @@
       "messages": [
         {
           "role": "system",
-          "content": "You are SensAI. Answer only with the supplied context. If the answer is absent, say that it is absent from the indexed documents.\n\nRAG CONTEXT — source: fractions.md\nA fraction represents one or more equal parts of a whole. In the fraction 3/4, 3 is the numerator and 4 is the denominator. Equivalent fractions represent the same quantity, for example 1/2 and 2/4."
+          "content": "You are SensAI. Answer only with the supplied context. If the answer is absent, say that it is absent from the indexed documents.\n\nRAG CONTEXT - source: fractions.md\nA fraction represents one or more equal parts of a whole. In the fraction 3/4, 3 is the numerator and 4 is the denominator. Equivalent fractions represent the same quantity, for example 1/2 and 2/4."
         },
         {
           "role": "user",
