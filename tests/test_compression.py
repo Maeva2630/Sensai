@@ -4,12 +4,12 @@ import os
 import sys
 import unittest
 from unittest.mock import MagicMock
-import json
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 from memory.compression import (
-    CompressionResult,
+    SUMMARIZATION_REQUEST,
+    SUMMARIZATION_SYSTEM_PROMPT,
     assemble_compressed_history,
     compress_history,
     create_summary_message,
@@ -234,6 +234,100 @@ class TestSemanticCompression(unittest.TestCase):
 
         mock_client.complete_message.side_effect = OllamaError("Failed")
         self.assertIsNone(generate_summary("User: Hello", mock_client))
+
+    def test_generate_summary_handles_unreadable_replies(self):
+        not_json = MagicMock()
+        not_json.json.side_effect = ValueError("Expecting value")
+        replies = {
+            "not JSON": not_json,
+            "not an object": MagicMock(**{"json.return_value": ["a"]}),
+            "message is not an object": MagicMock(**{"json.return_value": {"message": "text"}}),
+            "content is not text": MagicMock(**{"json.return_value": {"message": {"content": 3}}}),
+        }
+        for name, reply in replies.items():
+            with self.subTest(name):
+                client = MagicMock()
+                client.complete_message.return_value = reply
+                self.assertIsNone(generate_summary("User: Hello", client))
+
+    def test_unexpected_errors_are_not_hidden(self):
+        client = MagicMock()
+        client.complete_message.side_effect = RuntimeError("bug")
+        with self.assertRaises(RuntimeError):
+            generate_summary("User: Hello", client)
+
+    def test_summary_prompt_keeps_the_teacher_facts(self):
+        client = MagicMock()
+        client.complete_message.return_value.json.return_value = {"message": {"content": "- Teacher: Mme Martin"}}
+
+        generate_summary("User: I am Mme Martin, 5e B, 27 pupils, exam on 12 June.", client)
+
+        system, user = client.complete_message.call_args.args[0]
+        self.assertEqual(system["content"], SUMMARIZATION_SYSTEM_PROMPT)
+        for expected in ("teacher: name", "grade level", "numbers", "dates", "decisions", "tasks still open",
+                         "introducing themselves", "language of the conversation", "previous summary"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, SUMMARIZATION_SYSTEM_PROMPT.lower())
+        # The dialogue is delimited and followed by the instruction, which small models follow best.
+        self.assertIn("<<<\nUser: I am Mme Martin, 5e B, 27 pupils, exam on 12 June.\n>>>", user["content"])
+        self.assertTrue(user["content"].endswith(SUMMARIZATION_REQUEST.split(">>>\n")[1]))
+        self.assertIn("name, class, numbers, dates, decisions and open tasks", user["content"])
+
+    def test_split_never_separates_tool_calls_from_their_results(self):
+        tool_call = {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_time"}}]}
+        messages = [
+            {"role": "system", "content": "Persona"},
+            {"role": "user", "content": "I teach 5e B."},
+            {"role": "assistant", "content": "Noted."},
+            {"role": "user", "content": "27 pupils."},
+            {"role": "assistant", "content": "Noted."},
+            {"role": "user", "content": "What time is it?"},
+            tool_call,
+            {"role": "tool", "content": "10:00"},
+            {"role": "tool", "content": "10:00 (second call)"},
+            {"role": "assistant", "content": "It is 10:00."},
+        ]
+
+        _, older, recent = split_history_for_compression(messages, keep_recent_turns=1)
+
+        self.assertIs(recent[0], tool_call)
+        self.assertEqual([m["role"] for m in recent], ["assistant", "tool", "tool", "assistant"])
+        self.assertNotIn("tool", [m["role"] for m in older])
+        self.assertEqual(older[-1]["content"], "What time is it?")
+
+    def test_compressed_history_starts_kept_turns_with_the_whole_tool_exchange(self):
+        messages = [
+            {"role": "system", "content": "Persona"},
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+            {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_time"}}]},
+            {"role": "tool", "content": "10:00"},
+            {"role": "assistant", "content": "A2"},
+            {"role": "user", "content": "Q3"},
+            {"role": "assistant", "content": "A3"},
+        ]
+        client = MagicMock()
+        client.complete_message.return_value.json.return_value = {"message": {"content": "Summary"}}
+
+        updated, result = compress_history(messages, client, keep_recent_turns=2)
+
+        self.assertTrue(result.compressed)
+        roles = [m["role"] for m in updated]
+        self.assertEqual(roles[2:], ["assistant", "tool", "assistant", "user", "assistant"])
+        self.assertIn("tool_calls", updated[2])
+
+    def test_a_single_tool_exchange_is_kept_whole_or_not_split(self):
+        exchange = [
+            {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "a"}}]},
+            *({"role": "tool", "content": str(n)} for n in range(5)),
+        ]
+
+        _, older, recent = split_history_for_compression(
+            [{"role": "user", "content": "Q"}, *exchange], keep_recent_turns=1, min_turns_to_compress=1
+        )
+        self.assertEqual((older, recent), ([{"role": "user", "content": "Q"}], exchange))
+        self.assertIsNone(split_history_for_compression(exchange, keep_recent_turns=1, min_turns_to_compress=1))
 
 
 if __name__ == "__main__":

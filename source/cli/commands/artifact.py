@@ -1,7 +1,6 @@
 """CLI commands for managing the living artifact deliverable."""
 
 import re
-from pathlib import Path
 
 from cli.session import CliCommandContext, CliSession, CommandDefinition
 from tools.base import ToolError

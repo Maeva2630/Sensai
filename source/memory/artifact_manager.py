@@ -9,9 +9,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
 from typing import Literal
+
+from memory.private_files import PRIVATE_FILE_MODE, make_private_dir, write_private_json
+
+
+# An artifact is saved next to its conversation as <session_id>_artifact.md and .json.
+ARTIFACT_FILE_SUFFIX = "_artifact"
+_ARTIFACT_EXTENSIONS = (".md", ".json")
+
+
+def is_artifact_file(path: Path) -> bool:
+    """Return whether a file of the sessions folder holds an artifact rather than a conversation."""
+    return path.suffix in _ARTIFACT_EXTENSIONS and path.stem.endswith(ARTIFACT_FILE_SUFFIX)
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    """Write text to a file only the owner can read, as session files are."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, PRIVATE_FILE_MODE)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
 
 
 @dataclass
@@ -211,35 +235,56 @@ class ArtifactManager:
         """Reset and discard the current artifact."""
         self.artifact = None
 
+    def default_path(self) -> Path:
+        """Return where this session's artifact is saved (Markdown; the JSON sits next to it)."""
+        return self.storage_dir / f"{self.session_id}{ARTIFACT_FILE_SUFFIX}.md"
+
     def save(self, filepath: str | Path | None = None) -> Path:
-        """Persist the artifact as Markdown and JSON metadata."""
+        """Persist the artifact as Markdown and JSON metadata, readable by the owner only."""
         if not self.artifact:
             raise ValueError("Cannot save: No active artifact to persist.")
 
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
         if filepath:
             md_path = Path(filepath)
+            md_path.parent.mkdir(parents=True, exist_ok=True)
         else:
-            md_path = self.storage_dir / f"{self.session_id}_artifact.md"
+            make_private_dir(self.storage_dir)
+            md_path = self.default_path()
 
-        json_path = md_path.with_suffix(".json")
-
-        # Write markdown content
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(self.get_content())
-
-        # Write metadata JSON
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(self.artifact.to_dict(), f, indent=2, ensure_ascii=False)
-
+        _write_private_text(md_path, self.get_content())
+        write_private_json(md_path.with_suffix(".json"), self.artifact.to_dict())
         return md_path
+
+    def delete(self) -> bool:
+        """Delete this session's saved artifact files. Returns whether one was removed.
+
+        The artifact kept in memory is not touched: call `reset` to discard it too.
+        """
+        removed = False
+        md_path = self.default_path()
+        for path in (md_path, md_path.with_suffix(".json")):
+            if path.is_file():
+                path.unlink()
+                removed = True
+        return removed
+
+    def delete_all(self) -> int:
+        """Delete every saved artifact of the storage folder and return how many were removed."""
+        if not self.storage_dir.is_dir():
+            return 0
+        removed: set[str] = set()
+        for path in self.storage_dir.iterdir():
+            if path.is_file() and is_artifact_file(path):
+                path.unlink()
+                removed.add(path.stem)
+        return len(removed)
 
     def load(self, filepath: str | Path | None = None) -> Artifact:
         """Load an artifact from disk (JSON metadata preferred, falls back to Markdown)."""
         if filepath:
             target_path = Path(filepath)
         else:
-            target_path = self.storage_dir / f"{self.session_id}_artifact.json"
+            target_path = self.default_path().with_suffix(".json")
 
         if target_path.suffix == ".json" and target_path.exists():
             with open(target_path, "r", encoding="utf-8") as f:
