@@ -115,6 +115,31 @@ class TestArtifactTool(unittest.TestCase):
         self.tool.execute({"action": "init", "title": "Notes"})
         self.assertTrue(self.tool.is_relevant_for("What is the weather today?"))
 
+    def test_a_call_without_action_is_understood_from_its_arguments(self):
+        self.tool.execute({"action": "init", "title": "Séance fractions"})
+
+        result = self.tool.execute({"section_name": "Objectifs", "content": "1. Comprendre", "title": "ignored"})
+
+        self.assertIn("Section 'Objectifs' updated", result)
+        self.assertIn("Objectifs", self.artifact_manager_outline())
+
+    def test_a_section_with_a_stray_target_is_still_a_section_update(self):
+        self.tool.execute({"action": "init", "title": "Séance fractions"})
+
+        result = self.tool.execute(
+            {"section_name": "Objectifs", "mode": "replace", "target": "Objectifs", "content": "1. Comprendre"}
+        )
+
+        self.assertIn("Section 'Objectifs' updated", result)
+
+    def test_a_call_without_action_or_section_only_views_the_document(self):
+        self.tool.execute({"action": "init", "title": "Séance fractions"})
+
+        self.assertIn("Séance fractions", self.tool.execute({}))
+
+    def artifact_manager_outline(self):
+        return self.tool.manager.get_outline()
+
 
 if __name__ == "__main__":
     unittest.main()

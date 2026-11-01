@@ -32,7 +32,8 @@ class ArtifactTool(Tool):
                     "The operation to perform: 'init' creates/resets the document; "
                     "'update_section' adds or updates a specific section; "
                     "'replace_text' replaces a target snippet across the document; "
-                    "'delete_section' removes a section; 'view' returns current outline/content."
+                    "'delete_section' removes a section; 'view' returns current outline/content. "
+                    "When omitted, it is deduced from the other arguments."
                 ),
             },
             "title": {
@@ -61,7 +62,9 @@ class ArtifactTool(Tool):
                 "description": "Replacement string (for 'replace_text').",
             },
         },
-        "required": ["action"],
+        # Not required: small models often send the section and its content but forget
+        # the action, and the call was rejected (0 valid calls out of 5 in the audit).
+        "required": [],
     }
 
     _RELEVANT_PATTERN = re.compile(
@@ -77,7 +80,7 @@ class ArtifactTool(Tool):
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         """Execute the requested artifact operation."""
-        action = arguments.get("action")
+        action = arguments.get("action") or self._infer_action(arguments)
 
         if action == "init":
             title = arguments.get("title") or "Working Document"
@@ -130,6 +133,20 @@ class ArtifactTool(Tool):
             return self.manager.get_content()
 
         return f"Unknown action '{action}'."
+
+    def _infer_action(self, arguments: Dict[str, Any]) -> str:
+        """The action meant by a call without one, from the arguments it does carry.
+
+        A named section wins: the model often adds stray arguments ("target") to a
+        section update, while a text replacement always carries a replacement.
+        """
+        if arguments.get("section_name"):
+            return "update_section"
+        if arguments.get("target") and "replacement" in arguments:
+            return "replace_text"
+        if arguments.get("title") and not self.manager.has_artifact():
+            return "init"
+        return "view"
 
     def is_relevant_for(self, user_input: str) -> bool:
         """Available by default if an artifact already exists, or if requested."""
