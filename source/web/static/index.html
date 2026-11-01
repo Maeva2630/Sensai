@@ -162,7 +162,7 @@
       <div id="artifact" hidden>
         <strong id="artifact-title"></strong> <span class="sub" id="artifact-version"></span>
         <ul class="list" id="artifact-sections"></ul>
-        <div class="dl-row"><a class="btn" href="/api/artifact/download" download>Download (Markdown)</a></div>
+        <div class="dl-row"><button id="artifact-view" type="button">View in the chat</button><a class="btn" href="/api/artifact/download" download>Download (Markdown)</a></div>
       </div>
     </div>
   </details>
@@ -406,6 +406,7 @@ $('rag').onchange = (e) => command(e.target.checked ? '/rag on' : '/rag off');
 $('sources').onchange = (e) => command(e.target.checked ? '/sources on' : '/sources off');
 $('persona').onchange = (e) => command('/persona use ' + e.target.value);
 $('compress').onclick = () => command('/compress');
+$('artifact-view').onclick = () => command('/artifact view');
 $('forget').onclick = () => { if (confirm('Delete the saved copy of this conversation and clear it?')) command('/forget', true); };
 $('forget-all').onclick = () => { if (confirm('Delete ALL saved conversations? This cannot be undone.')) command('/forget all', true, true); };
 $('new').onclick = async () => {
