@@ -132,6 +132,25 @@ As a developer, I want local metrics so that I can identify slow calls and error
 - Date, model, prompt version, feature, tool, and error filters combine with AND semantics.
 - Raw prompts, responses, excerpts, tool arguments, and profile data are not stored by default.
 
+### Web interface
+
+**WEB-01 — Use SensAI without a terminal**
+
+As a primary or middle-school teacher who is not comfortable with a terminal, I want to use the assistant from a web page so that I can prepare lessons, load my course documents, and generate quizzes with buttons instead of commands.
+
+- `python3 source/main.py --web` serves the page on `localhost` and answers appear progressively.
+- Documents can be uploaded, and "Answer from my documents" turns RAG on or off.
+- The quiz form generates a quiz and offers downloads with answers, for students, or as JSON.
+- A stopped Ollama server or a missing model is explained on the page; the page keeps working.
+
+**WEB-02 — Keep control of what leaves my computer**
+
+As a teacher who handles student information, I want to approve every web search in the page so that private data is never sent without my explicit yes.
+
+- Before a web search or page fetch, the page shows the exact text or URL with Allow and Cancel.
+- Cancel, or no answer within two minutes, means nothing is sent and the assistant answers without it.
+- The server only accepts requests from this machine, and conversations remain stored locally.
+
 ### CLI configuration and error handling
 
 **CLI-01 - Configure a local installation**
@@ -166,6 +185,8 @@ As a teacher, I want concise errors so that a local failure does not expose a tr
 | MEMORY-02 | Tokens and compression | `/tokens`, `/compress`, `model.context_window` | `test_cli.py::test_auto_compression_triggered_when_budget_critical`; `test_compression.py::test_compress_history_preserves_base_system_and_recent_turns` | Tokens: yes; compression: optional |
 | OBS-01 | Logs and prompt inspection | `logging`, `/debug prompt` | `test_observability.py::test_debug_prompt_displays_user_assistant_and_tool_messages` | Yes, step 8 |
 | OBS-02 | Monitoring | `monitoring.enabled`, `/metrics` | `test_monitoring.py::test_persists_aggregates_and_filters_safe_interaction_metadata` | Yes, step 8 |
+| WEB-01 | Web interface | `--web`, `--port` | `test_web.py::test_answer_is_streamed_and_kept_in_history`; `test_web.py::test_chat_streams_json_lines` | Optional |
+| WEB-02 | Web interface | `features.network_enabled` | `test_web.py::test_refused_tool_does_not_run`; `test_web.py::test_foreign_host_is_refused` | Optional |
 | CLI-01 | Configuration | `config.json` | `test_config.py::test_rejects_invalid_values_before_startup` | Setup |
 | CLI-02 | Error handling | CLI error boundary | `test_cli.py::test_cli_unexpected_error_is_hidden_and_the_next_turn_still_works` | Optional; automated test is safer |
 

@@ -131,6 +131,18 @@ class TestLocalVectorStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.search(QueryEmbedding("Question", (1.0, 0.0), "test-embed"), top_k=0)
 
+    def test_list_sources_counts_chunks_per_source_filename(self):
+        self.assertEqual(self.store.list_sources(), [])
+        self.store.store_chunks(
+            [
+                embedded_chunk("a", (1.0, 0.0)),
+                embedded_chunk("b", (0.0, 1.0)),
+                embedded_chunk("c", (1.0, 1.0), source_filename="main.py"),
+            ]
+        )
+
+        self.assertEqual(self.store.list_sources(), [("guide.md", 2), ("main.py", 1)])
+
     def test_search_filters_chunks_by_source_filename_or_category(self):
         self.store.store_chunks(
             [
