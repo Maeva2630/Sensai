@@ -1,6 +1,5 @@
 import os
 import sys
-import tempfile
 import unittest
 
 # Ensure `source` directory is in python path
@@ -107,8 +106,10 @@ class TestArtifactTool(unittest.TestCase):
     def test_is_relevant_for(self):
         # Before init, matches keywords
         self.assertTrue(self.tool.is_relevant_for("Can you create an artifact for this spec?"))
-        self.assertTrue(self.tool.is_relevant_for("Update the document please"))
+        self.assertTrue(self.tool.is_relevant_for("Update the shared document please"))
         self.assertFalse(self.tool.is_relevant_for("What is the weather today?"))
+        # Ordinary lesson words do not offer the artifact editor any more.
+        self.assertFalse(self.tool.is_relevant_for("Help me write a lesson plan with notes and a summary"))
 
         # Once active, always relevant
         self.tool.execute({"action": "init", "title": "Notes"})
