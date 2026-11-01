@@ -1,6 +1,6 @@
-# Product scenario and traceability
+# Product scenario
 
-[Home](../README.md) · [User guide](user-guide.md) · [Feature documentation](features/README.md)
+[Home](../README.md) · [User stories](user-stories.md) · [Technical decisions](decisions.md) · [Demo script](../demo/demo-script.md) · [Model benchmarks](model-benchmarks.md)
 
 ## Product vision
 
@@ -8,196 +8,139 @@ SensAI is a local assistant for teachers preparing learning activities, classroo
 
 ## Target users
 
-| Audience | Available SensAI capabilities | Product positioning |
+The recommended deployment scope is **primary and middle-school teachers** (tickets #124 and #131).
+
+| Audience | Typical uses | Product positioning |
 | --- | --- | --- |
-| Primary-school teachers | All implemented features: RAG, tools and MCP, personas, sessions, logging, and monitoring. Typical uses include clear activities, local resources, short quizzes, and age-appropriate explanations. | The teacher checks suitability for pupils and validates generated content. |
-| Middle-school teachers | All implemented features: RAG, tools and MCP, personas, sessions, logging, and monitoring. Typical uses include subject resources, assessments, grade calculations, timers, and longer preparation sessions. | SensAI only knows a curriculum supplied in local documents. |
-| High-school teachers | All implemented features are technically available in the same application. | The current model choice and product scenario are designed and validated for primary and middle-school use; high-school pedagogical use requires further evaluation, not new feature access. |
+| Primary-school teachers | Clear activities, short quizzes, and age-appropriate explanations from local resources. | The teacher checks suitability for pupils and validates generated content. |
+| Middle-school teachers | Subject resources, assessments, grade calculations, and longer preparation sessions. | SensAI only knows a curriculum supplied in local documents. |
+| High-school teachers | The same features are technically available. | The model choice, prompts, and scenario were designed and checked for primary and middle school only; high-school use needs its own evaluation. |
 
-## Final demonstration scenario
+All implemented features are available to every audience; only the validation scope differs.
 
-The demonstration follows **Lucas**, a middle-school mathematics teacher preparing a fractions lesson for a Year 6 / *sixième* class. Fractions also fit a primary-school transition activity, so the workflow represents both current target audiences.
+## Persona: Camille
 
-Before the demonstration, prepare a fictional UTF-8 course file such as `courses/fractions.md`, a non-sensitive `profile.json`, and a running Ollama server.
+The scenario follows one teacher from start to finish. The live demonstration uses the same person and the same sequence: [`demo/profile_camille.json`](../demo/profile_camille.json) and the fictional 6e B course in [`courses/`](../courses/).
 
-1. Start SensAI and show `/help`.
-2. Select `/persona use mathematics-assistant`.
-3. Run `/ingest courses/fractions.md`, `/rag on`, then ask a course question.
-4. Use `/rag filter name fractions.md` and `/sources on` or `/sources off`.
-5. Run `/quiz --questions 3 Les fractions` and optionally save it to `exports/`.
-6. Ask for a weighted-grade calculation or a short timer, demonstrating a teacher MCP tool.
-7. Run `/save`, `/tokens`, and, with a prepared long session, `/compress`.
-8. Run `/debug prompt`; with monitoring enabled beforehand, run `/metrics`.
+| | Camille | Status |
+| --- | --- | --- |
+| Role | Mathematics teacher in a French public *collège*, teaching *sixième* (first year of *collège*, pupils aged 11–12). | Scenario choice, matches the demo profile |
+| Classes | Four *sixième* classes, about 100 pupils. | Assumption |
+| Language | Works and writes in French. | Demo profile (`preferred_language: French`) |
+| Constraints she gives the assistant | "Use examples appropriate for sixth-grade pupils", "Prefer concise classroom-ready activities". | Demo profile (`constraints`) |
+| Where she prepares | At home in the evening, and in the staff room between lessons, where the school network is filtered and unreliable. | Assumption |
+| Computer | Her own laptop: Apple M5, 16 GB unified memory. | The team's measurement machine; see [Hardware feasibility](#hardware-feasibility) |
+| Material she owns | Course notes, worksheets, and past tests in Markdown, PDF, and Word files. | Assumption; these formats are supported by `/ingest` |
+| Pupil data she handles | Marks, difficulties, and first names of minors. | Fact of the job; see [local data and GDPR assessment](RGPD.md) |
 
-Use only fictional or public teaching material during the demonstration. Never enter real pupil names, grades, or personal data.
+### Business need
 
-## User stories and acceptance criteria
+The figures below are **assumptions** used to size the scenario. They have not been measured with real teachers.
 
-### RAG
+| Item | Value |
+| --- | --- |
+| Preparation time outside class | About 6 hours per week. |
+| What she prepares per chapter (about two weeks) | One lesson plan, about four 15-minute starter activities, one 5-question multiple-choice check with a pupil copy and a teacher copy. |
+| What she computes per term | Weighted averages and class statistics for about 100 pupils. |
+| Target gain | 1 hour per week (about 15 % of preparation time): she reviews drafts built from her own course instead of writing them from scratch. |
+| Acceptable waiting time | A draft must arrive faster than she could start writing it herself. The project targets are a first token in under 3 s and a short answer in under 15 s ([model benchmarks](model-benchmarks.md#quality-review-protocol)). |
 
-**RAG-01 - Use a local teaching resource**
+### Why it must run locally
 
-As a primary or middle-school teacher, I want to index a local course and ask a question about it so that I can prepare material from a source I control.
+- **Pupil data.** Marks and difficulties of minors are personal data. With a local Ollama model, nothing leaves the laptop by default: `features.network_enabled` is `false` in `config.json`, and when it is turned on, every outgoing request is shown and must be approved (story [T3-02](user-stories.md#t3--web-search)).
+- **No account, no subscription, no network needed.** Preparation works the same at home and in the staff room.
+- **Her course is the reference.** SensAI answers from the documents she indexes and names the source file under each grounded answer (story [R1-01](user-stories.md#r1--basic-rag)).
 
-- `/ingest` accepts supported text, source-code, PDF, DOCX, and ZIP files.
-- With `/rag on`, relevant indexed excerpts are sent with the question.
-- Source filename and chunk identifiers can be displayed after a grounded answer.
-- Missing, empty, unsupported, or scanned PDF files fail with a readable message.
+### What the scenario does not need
 
-**RAG-02 - Limit research to the right source**
+The scenario also delimits the scope. These exclusions are argued in [technical decisions](decisions.md#adr-07-features-deliberately-not-implemented).
 
-As a middle-school teacher, I want to restrict retrieval to selected resources so that a worksheet is not mixed with unrelated material.
+- **Running code written by the model** (catalogue T2). Camille computes averages and statistics, not programs; the custom MCP server gives her exact, tested calculations instead.
+- **A public share link** (part of catalogue X3). Her material is printed or sent as a file; a public link would contradict the local-only promise.
+- **A pupil-facing assistant.** SensAI is a preparation tool for the teacher; pupils never use it.
 
-- `/rag filter name <file>` and `/rag filter category <type>` limit candidate chunks.
-- `/rag filter clear` restores normal retrieval.
-- `/sources off` hides attribution only; it does not disable RAG.
+## Usage scenario: preparing Monday's fractions lesson
 
-### Tools and MCP
+Sunday evening, at home. On Monday, Camille introduces equivalent fractions to one of her *sixième* classes. Each step names the feature it relies on and the story that justifies it. Use only fictional data when replaying it: never real pupil names or marks.
 
-**TOOLS-01 - Prepare an assessment efficiently**
+| # | What Camille does | Command or input | Feature | Story | Live demo |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Starts SensAI with her profile and the mathematics assistant. | `python3 source/main.py --profile demo/profile_camille.json`, `/persona use mathematics-assistant` | M1, A5 | M1-02, A5-01 | 0:00–0:25 |
+| 2 | Indexes the progression of the 6e B, the test instructions and the equivalent-fractions lesson. | `/ingest --multiple courses/progression_6e_B.md courses/consignes_evaluation.md courses/fractions_equivalentes.md`, `/rag on` | R1 | R1-01 | 0:25 |
+| 3 | Asks when and where the common test takes place. | `Quand a lieu le contrôle commun de fractions et dans quelle salle ?` | R1 | R1-01 | 0:45 |
+| 4 | Checks what was actually sent to the model. | `/debug prompt` | EV3 | EV3-02 | 1:05 |
+| 5 | Asks something her course does not cover and gets "not found", without a model call. | `Quelle est la capitale de l'Australie ?` | R2 | R2-02 | 1:30 |
+| 6 | Imports a colleague's file that hides an instruction for the AI; SensAI warns her. | `/ingest demo/progression_piegee.md`, then a question on it | R1 (safety) | R1-03 | 1:45–2:00 |
+| 7 | Computes a pupil's weighted average with the teacher tools server. | `Calcule la moyenne pondérée d'Inès : 16, 14 et 15 avec les coefficients 1, 1 et 2.` | T1 | T1-01 | 2:20 |
+| 8 | Sees how fast her laptop answers. | `/stats` | EV3 | EV3-02 | 2:40 |
+| 9 | Saves, stops, and resumes the conversation the next day. | `/save`, `exit`, `python3 source/main.py --session <id> --profile demo/profile_camille.json` | M1 | M1-01 | 2:55 |
+| 10 | Reuses the earlier answer. | `Transforme ta réponse sur la date et la salle du contrôle commun en un rappel court à écrire au tableau pour les élèves.` | M1 | M1-01 | 3:15 |
+| 11 | Checks the context budget and the local metrics. | `/tokens`, `/metrics` | M2, EV3 | M2-01, EV3-01 | 3:35 |
+| 12 | Erases the conversation. | `/forget` | M1 (privacy) | M1-03 | 4:00 |
+| 13 | Builds the lesson plan, then exports it. | `/artifact init Séance fractions équivalentes`, `/artifact export exports/plan-fractions.md` | M4, X3 | M4-01, X3-02 | No |
+| 14 | Generates the 5-question check and saves a pupil copy. | `/quiz --questions 5 --save exports/fractions-eleves.txt --no-answers Les fractions équivalentes` | T5, X3 | T5-01, X3-01 | No |
+| 15 | With network access turned on, looks up a source and approves the exact query. | `Cherche sur le web ...`, then `y` | T3 | T3-01, T3-02 | No |
+| 16 | A primary-school colleague does the same from a web page. | `python3 source/main.py --web` | X1 | X1-01 | No (recording) |
 
-As a teacher, I want to generate and save a short course-grounded quiz so that I can prepare an assessment more quickly.
+The [live demonstration](../demo/demo-script.md) lasts about 5 minutes and covers steps 1 to 12. Steps 13 to 16 are covered by automated tests (listed in each story) and by the recordings kept as a fallback; they can be shown on request. All data comes from the fictional course in [`courses/`](../courses/) and [`demo/`](../demo/).
 
-- `/quiz --questions <1-20> <topic>` produces the requested number of validated questions.
-- With RAG enabled and no matching course excerpt, generation stops with a clear message.
-- `/quiz --save <path> --no-answers` creates a learner copy only in a permitted directory.
-- Existing exports are kept unless `--overwrite` is explicitly supplied.
+## Hardware feasibility
 
-**TOOLS-02 - Use controlled classroom utilities**
+Camille prepares lessons; she does not use SensAI live in front of pupils. The question is therefore whether a draft arrives faster than she could start writing it, on a laptop a teacher can own.
 
-As a teacher, I want to calculate grades, inspect class statistics, or start an exercise timer so that routine preparation is faster.
+### Measured machines
 
-- `/tools` lists available native and MCP tools with their origin.
-- The included teacher MCP server provides prefixed grade, statistics, and timer tools.
-- Invalid tool input or an unavailable MCP server does not terminate SensAI.
-- File operations obey `permissions.json`; denied paths and traversal attempts are refused.
-
-### Personas
-
-**PERSONA-01 - Select a subject-appropriate assistant**
-
-As a teacher, I want to choose a persona for my preparation task so that the assistant's tone and scope are appropriate.
-
-- `/persona list` identifies available personas and the active one.
-- `/persona status` displays safe metadata for the active persona.
-- `/persona use <id>` changes persona, rejects an unknown identifier, and keeps history.
-- The following model request uses the selected persona instructions.
-
-**PERSONA-02 - Add a persona through configuration**
-
-As a maintainer, I want to add a persona without Python changes so that new subjects can be supported safely.
-
-- Each persona has an identifier, display name, role, tone, scope, and one prompt source.
-- The source is either `system_prompt` or a UTF-8 `prompt_file` under the config directory.
-- Invalid persona configuration is reported at startup.
-- The runtime selection resets on restart unless `personas.active_persona` is changed.
-
-### Sessions, user profile, and conversation memory
-
-**MEMORY-01 - Resume preparation later**
-
-As a teacher, I want to save and reload a preparation conversation so that I can continue working after closing SensAI.
-
-- `/save` writes `sessions/<session_id>.json` when memory is enabled.
-- `exit`, `quit`, `Ctrl+C`, and `Ctrl+D` save the current session when memory is enabled.
-- `/load <session_id>` restores prior user and assistant history while preserving the system prompt.
-- A missing session is reported without ending the CLI.
-
-**MEMORY-02 - Manage a long conversation**
-
-As a teacher, I want to see and manage context use so that a long preparation does not exhaust the local model window unexpectedly.
-
-- `/tokens` displays last-turn, context, and cumulative token estimates.
-- A warning appears at 80% of `model.context_window`.
-- `/compress` preserves base instructions and recent dialogue while summarizing older turns.
-- Automatic compression can run at 85%; this is conversation memory, not long-term pupil profiling.
-
-### Logging and monitoring
-
-**OBS-01 - Diagnose a surprising response**
-
-As a developer, I want local logs and request inspection so that I can understand RAG, persona, and tool behaviour without temporary `print` statements.
-
-- Logs contain timestamp, level, and component in the configured local file.
-- Normal chat does not print debug logs.
-- `/debug prompt` labels user, assistant, RAG, and tool messages while hiding system/profile data.
-- `/debug prompt --include-system` exposes the complete request only on demand.
-
-**OBS-02 - Observe local reliability**
-
-As a developer, I want local metrics so that I can identify slow calls and errors after a model, prompt, or feature change.
-
-- Monitoring only records events when `monitoring.enabled` is true.
-- `/metrics` reports volume, latency, errors, token estimates, RAG, tools, and daily calls.
-- Date, model, prompt version, feature, tool, and error filters combine with AND semantics.
-- Raw prompts, responses, excerpts, tool arguments, and profile data are not stored by default.
-
-### Web interface
-
-**WEB-01 — Use SensAI without a terminal**
-
-As a primary or middle-school teacher who is not comfortable with a terminal, I want to use the assistant from a web page so that I can prepare lessons, load my course documents, and generate quizzes with buttons instead of commands.
-
-- `python3 source/main.py --web` serves the page on `localhost` and answers appear progressively.
-- Documents can be uploaded, and "Answer from my documents" turns RAG on or off.
-- The quiz form generates a quiz and offers downloads with answers, for students, or as JSON.
-- A stopped Ollama server or a missing model is explained on the page; the page keeps working.
-
-**WEB-02 — Keep control of what leaves my computer**
-
-As a teacher who handles student information, I want to approve every web search in the page so that private data is never sent without my explicit yes.
-
-- Before a web search or page fetch, the page shows the exact text or URL with Allow and Cancel.
-- Cancel, or no answer within two minutes, means nothing is sent and the assistant answers without it.
-- The server only accepts requests from this machine, and conversations remain stored locally.
-
-### CLI configuration and error handling
-
-**CLI-01 - Configure a local installation**
-
-As a teacher or maintainer, I want one configuration file so that SensAI can be adapted to the local computer without code changes.
-
-- `config.json` controls models, Ollama URL, temperature, context, features, RAG, logs, monitoring, and personas.
-- Invalid required values are rejected at startup with a named configuration error.
-- `temperature` accepts 0 to 2 and `context_window` accepts integers of at least 512.
-- Changes apply after restarting SensAI.
-
-**CLI-02 - Recover from a failure clearly**
-
-As a teacher, I want concise errors so that a local failure does not expose a traceback or prevent me from continuing.
-
-- Ollama, RAG, file, session, and unexpected errors are handled at the CLI boundary.
-- Recoverable failures do not show a full traceback during normal use.
-- The following user input can still be processed after a recoverable error.
-- Technical diagnostics remain in the local log file.
-
-## Traceability table
-
-| Story | Feature | Command or configuration | Automated test | Live demo |
+| Machine | Chat model | Generation speed | Memory used | Source |
 | --- | --- | --- | --- | --- |
-| RAG-01 | RAG | `/ingest`, `/rag on` | `test_rag_integration.py::test_indexed_excerpt_is_injected_and_attributed_without_ollama` | Yes, step 3 |
-| RAG-02 | RAG | `/rag filter`, `/sources` | `test_cli.py::test_rag_filter_commands_set_and_clear_metadata_restrictions` | Yes, step 4 |
-| TOOLS-01 | Quiz and export | `/quiz`, `permissions.json` | `test_structured_output.py::test_quiz_is_built_from_the_course_when_rag_is_on`; `test_quiz_export.py::test_student_copy` | Yes, step 5 |
-| TOOLS-02 | Tools and MCP | `/tools`, `/permissions`, `mcp_servers.json` | `test_mcp_manager.py::test_broken_server_does_not_prevent_the_others`; `test_permissions.py::test_path_traversal_is_blocked` | Yes, step 6 |
-| PERSONA-01 | Personas | `/persona list`, `/persona status`, `/persona use` | `test_cli.py::test_persona_commands_list_status_and_switch_without_erasing_history` | Yes, step 2 |
-| PERSONA-02 | Personas | `personas.profiles`, `prompt_file` | `test_config.py::test_loads_a_persona_prompt_from_a_file_relative_to_the_configuration` | Setup |
-| MEMORY-01 | Sessions and memory | `/save`, `/load`, `--session` | `test_cli.py::test_slash_load_restores_conversation_context_for_next_turn` | Yes, step 7 |
-| MEMORY-02 | Tokens and compression | `/tokens`, `/compress`, `model.context_window` | `test_cli.py::test_auto_compression_triggered_when_budget_critical`; `test_compression.py::test_compress_history_preserves_base_system_and_recent_turns` | Tokens: yes; compression: optional |
-| OBS-01 | Logs and prompt inspection | `logging`, `/debug prompt` | `test_observability.py::test_debug_prompt_displays_user_assistant_and_tool_messages` | Yes, step 8 |
-| OBS-02 | Monitoring | `monitoring.enabled`, `/metrics` | `test_monitoring.py::test_persists_aggregates_and_filters_safe_interaction_metadata` | Yes, step 8 |
-| WEB-01 | Web interface | `--web`, `--port` | `test_web.py::test_answer_is_streamed_and_kept_in_history`; `test_web.py::test_chat_streams_json_lines` | Optional |
-| WEB-02 | Web interface | `features.network_enabled` | `test_web.py::test_refused_tool_does_not_run`; `test_web.py::test_foreign_host_is_refused` | Optional |
-| CLI-01 | Configuration | `config.json` | `test_config.py::test_rejects_invalid_values_before_startup` | Setup |
-| CLI-02 | Error handling | CLI error boundary | `test_cli.py::test_cli_unexpected_error_is_hidden_and_the_next_turn_still_works` | Optional; automated test is safer |
+| Apple M5, 16 GB unified memory (Camille's reference machine) | `qwen2.5:3b` | 58.1 to 58.7 tokens/s (three runs) | 2.2 GB for the chat model at `num_ctx` 4,096, plus 336 MB for `nomic-embed-text` (274 MB on disk) | [Model benchmarks: Apple M5](model-benchmarks.md#second-machine-apple-m5-unified-memory), 2026-11-01; embedding model size from Ollama `/api/ps` |
+| Laptop with AMD Ryzen 7 8845HS, 14 GiB RAM, NVIDIA RTX 4060 (8 GB VRAM) | `qwen2.5:3b` | 111.0 tokens/s (warm mean) | 2,444 MiB peak VRAM (warm) | [Model benchmarks](model-benchmarks.md#results-table---measured-on-2026-10-27), 2026-10-27 |
+| Same laptop | `qwen2.5:7b` | 53.7 tokens/s (warm mean) | 4,858 MiB peak VRAM (warm) | [Model benchmarks](model-benchmarks.md#results-table---measured-on-2026-10-27) |
+| Laptop without a GPU (CPU only) | — | **Not measured** | **Not measured** | — |
 
-## Reviewer exercise
+### What it means for Camille's tasks
 
-Give a reviewer this story without its identifier:
+| Task | Time on the Apple M5 | Basis |
+| --- | --- | --- |
+| Short answer (two-sentence explanation, check question) | 1.5 to 10 s | Team measurement, 2026-11-01 |
+| 15-minute starter activity (517 to 622 output tokens) | 9.4 to 10.7 s in total, almost all of it generation | [Measured](model-benchmarks.md#second-machine-apple-m5-unified-memory) |
+| Reading a 2,000-token prompt (persona, course excerpts, history) | 1.35 to 1.47 s | [Measured](model-benchmarks.md#second-machine-apple-m5-unified-memory) (prefill, 2,050-token prompt) |
+| 5-question quiz | One generation per attempt, up to 3 attempts (`DEFAULT_MAX_ATTEMPTS` in `tools/structured_output.py`) | **Not measured**; if a quiz is about the size of an activity, about 10 s per attempt and about 30 s in the worst case (estimate) |
+| Vector search over 1,000 indexed chunks | ≈ 0.2 s (query embedding call not included) | Measured on synthetic vectors, see [decisions](decisions.md#adr-02-vector-store) |
+| Model memory next to her usual applications | ≈ 2.5 GB out of 16 GB | Measured |
 
-> As a teacher, I want to restore yesterday's preparation discussion after restarting SensAI, so that I do not need to repeat my work.
+At the assumed volume (one plan, four activities, and one quiz per chapter), generation time stays in the order of a minute per chapter. Her review of the drafts, not the model, is the limiting step. A larger model is not justified by these numbers: on the RTX 4060 laptop, `qwen2.5:7b` halves generation speed and doubles memory for a quality gain that has not been demonstrated ([decision ADR-01](decisions.md#adr-01-chat-model)).
 
-Expected answer: **Sessions, user profile, and conversation memory**. The reviewer should identify `/save`, `/load <session_id>`, or `--session <session_id>`, then find the **MEMORY-01** test evidence in the table.
+### Known risks on other hardware
 
-## Future compatibility and limits
+- **CPU-only laptops are not measured.** Generation would be slower by an unknown factor.
+- **30-second request timeout.** On `main` at the time of writing, `utilities/ollama_client.py` sets `DEFAULT_REQUEST_TIMEOUT_SECONDS = 30`. Quiz generation and compression use a non-streamed request, so on a machine where a full quiz takes more than 30 s, the request would fail. This is inferred from the code, not observed.
+- **8 GB machines.** The 3B model peaked at 2,444 MiB of VRAM on the RTX 4060 laptop, which suggests it fits; a full SensAI session on an 8 GB machine has not been measured.
 
-SensAI exposes the same implemented features to every teacher, including a high-school teacher. The current product scenario, prompts, and chosen local model are nevertheless designed and validated for primary and middle-school teaching, where the expected pedagogical complexity is lower. Future high-school work concerns model evaluation, subject-specific prompts, curriculum documents, assessment workflows, and validation with high-school teachers; it does not mean that RAG, tools, MCP, sessions, or the other existing features are unavailable.
+## Scenario history
+
+The teacher scenario was **not** fixed at the bootstrap. It was chosen four weeks in, and has stayed the same since. The dates below come from `git log origin/main` and the GitHub tickets.
+
+| Date | Event | Evidence |
+| --- | --- | --- |
+| 2026-09-23 | Repository bootstrap. No product scenario: the README only says "Mirror of the Sensai project." | Commit `4dd7821` |
+| 2026-09-28 to 10-12 | Base loop: Ollama HTTP client, then the CLI. | PR #4, PR #7 |
+| 2026-10-12 to 10-13 | Feature epics planned by catalogue area (RAG, Context & Memory, MCP, Tools), before any persona. | Issues #8 to #43 |
+| 2026-10-18 | RAG pipeline merged, including code-aware chunking and source-code formats (`.py`, `.c`, `.rs`...). These were designed before the teacher scenario and are not used by it. | PR #48 to #74 |
+| 2026-10-22 | **Teacher scenario chosen**: configurable teacher persona. The same day, sandboxed code execution is marked out of scope "for the teacher scenario". | Issue #88 (merged 10-23); issues #36 and #37 edited 10-22 |
+| 2026-10-24 to 10-26 | Built for the teacher: `teacher` MCP server (grades, class statistics, timers), `/quiz`, quiz export with a pupil copy, `courses/` and `exports/` permissions. | PR #102, #105, #109, #110, #117 |
+| 2026-10-27 | Scenario written down: primary and middle-school teachers; benchmark prompt set `teacher-scenario-v1`. The first version of this document used a teacher named Lucas. | Issues #124, #125, #126; commit `407dc80` |
+| 2026-10-30 | Lesson-plan artifact and web search behind a network switch. | PR #119 to #123, #138 |
+| 2026-11-01 | Local web page for teachers who prefer not to use a terminal; demo script with Camille, a *sixième* mathematics teacher. | PR #140, #141 |
+| 2026-11-01 | This revision: the persona of this document becomes Camille, so that the document and the demo describe the same teacher and the same lesson. | This document |
+
+Since 2026-10-22, the audience (primary and middle-school teachers), the subject of the demo (fractions in *sixième*), and the reason for local execution (pupil data) have not changed. Only the persona's name changed, from Lucas to Camille. Every feature merged after that date was built for this scenario. The RAG pipeline is the exception: it predates the scenario, which is why it still contains code-oriented chunking that the teacher does not use (see [decisions](decisions.md#4-write-the-scenario-and-an-evaluation-set-first)).
+
+## User stories
+
+User stories, acceptance criteria, and the traceability tables have moved to **[docs/user-stories.md](user-stories.md)**. The 14 stories of the first version are rewritten there; the [former identifiers](user-stories.md#former-story-identifiers) table maps them to the new ones.
+
+## Limits and future compatibility
+
+- Generated explanations, quiz answer keys, and grades can be wrong. The quiz schema guarantees the structure of a quiz, not the correctness of its answers; the teacher reviews everything before use.
+- SensAI exposes the same features to every teacher, including high-school teachers. The prompts, the chosen local model, and this scenario are designed and checked for primary and middle school, where the expected complexity is lower. Future high-school work concerns model evaluation, subject-specific prompts, curriculum documents, and validation with high-school teachers; it does not mean that a feature is unavailable.
+- Persistent sessions preserve conversation context; they are not a long-term record of each pupil.
