@@ -241,7 +241,7 @@ def cli(
     atexit.register(mcp_manager.close)
 
     def _auto_save() -> None:
-        if feature_config.memory_enabled:
+        if feature_config.memory_enabled and not session.persistence_saved_on_exit:
             try:
                 conversation_session.save()
             except Exception as error:
@@ -426,6 +426,7 @@ def cli(
             logger.info("cli.interrupted")
             if feature_config.memory_enabled:
                 conversation_session.save()
+                session.persistence_saved_on_exit = True
                 if artifact_manager and artifact_manager.has_artifact():
                     try:
                         artifact_manager.session_id = conversation_session.session_id

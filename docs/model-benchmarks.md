@@ -240,7 +240,7 @@ Minimum pass conditions for a practical default model:
 
 The team must agree on latency thresholds before making the final recommendation. Suggested starting thresholds are first text token below 3 seconds and a short response below 15 seconds, but these are **project targets**, not measured results.
 
-## Results table — measured on 2026-10-27
+## Results table - measured on 2026-10-27
 
 The values below come from these clean generated JSON files in `benchmarks/results/`:
 

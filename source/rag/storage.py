@@ -173,6 +173,15 @@ class LocalVectorStore:
         with self._connect() as connection:
             return connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
+    def clear(self) -> int:
+        """Delete every indexed chunk while preserving the local database structure."""
+        try:
+            with self._connect() as connection:
+                cursor = connection.execute("DELETE FROM chunks")
+                return cursor.rowcount
+        except sqlite3.Error as error:
+            raise VectorStoreError("Unable to clear the local RAG index.") from error
+
     def list_sources(self) -> list[tuple[str, int]]:
         """Return each indexed source filename with its number of chunks."""
         with self._connect() as connection:

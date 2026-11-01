@@ -106,6 +106,18 @@ class TestLocalVectorStore(unittest.TestCase):
         self.assertEqual(self.store.store_chunks([record]), 0)
         self.assertEqual(self.store.count_chunks(), 1)
 
+    def test_clear_deletes_all_chunks_but_keeps_the_store_usable(self):
+        self.store.store_chunks(
+            [
+                embedded_chunk("first", (1.0, 0.0)),
+                embedded_chunk("second", (0.0, 1.0)),
+            ]
+        )
+
+        self.assertEqual(self.store.clear(), 2)
+        self.assertEqual(self.store.count_chunks(), 0)
+        self.assertEqual(self.store.store_chunks([embedded_chunk("new", (1.0, 0.0))]), 1)
+
     def test_invalid_record_does_not_partially_write_other_records(self):
         valid_record = embedded_chunk("valid", (1.0, 0.0))
         invalid_record = embedded_chunk("invalid", (float("nan"), 0.0))

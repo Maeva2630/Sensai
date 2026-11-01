@@ -35,7 +35,7 @@ Use only fictional or public teaching material during the demonstration. Never e
 
 ### RAG
 
-**RAG-01 — Use a local teaching resource**
+**RAG-01 - Use a local teaching resource**
 
 As a primary or middle-school teacher, I want to index a local course and ask a question about it so that I can prepare material from a source I control.
 
@@ -44,7 +44,7 @@ As a primary or middle-school teacher, I want to index a local course and ask a 
 - Source filename and chunk identifiers can be displayed after a grounded answer.
 - Missing, empty, unsupported, or scanned PDF files fail with a readable message.
 
-**RAG-02 — Limit research to the right source**
+**RAG-02 - Limit research to the right source**
 
 As a middle-school teacher, I want to restrict retrieval to selected resources so that a worksheet is not mixed with unrelated material.
 
@@ -54,7 +54,7 @@ As a middle-school teacher, I want to restrict retrieval to selected resources s
 
 ### Tools and MCP
 
-**TOOLS-01 — Prepare an assessment efficiently**
+**TOOLS-01 - Prepare an assessment efficiently**
 
 As a teacher, I want to generate and save a short course-grounded quiz so that I can prepare an assessment more quickly.
 
@@ -63,7 +63,7 @@ As a teacher, I want to generate and save a short course-grounded quiz so that I
 - `/quiz --save <path> --no-answers` creates a learner copy only in a permitted directory.
 - Existing exports are kept unless `--overwrite` is explicitly supplied.
 
-**TOOLS-02 — Use controlled classroom utilities**
+**TOOLS-02 - Use controlled classroom utilities**
 
 As a teacher, I want to calculate grades, inspect class statistics, or start an exercise timer so that routine preparation is faster.
 
@@ -74,7 +74,7 @@ As a teacher, I want to calculate grades, inspect class statistics, or start an 
 
 ### Personas
 
-**PERSONA-01 — Select a subject-appropriate assistant**
+**PERSONA-01 - Select a subject-appropriate assistant**
 
 As a teacher, I want to choose a persona for my preparation task so that the assistant's tone and scope are appropriate.
 
@@ -83,7 +83,7 @@ As a teacher, I want to choose a persona for my preparation task so that the ass
 - `/persona use <id>` changes persona, rejects an unknown identifier, and keeps history.
 - The following model request uses the selected persona instructions.
 
-**PERSONA-02 — Add a persona through configuration**
+**PERSONA-02 - Add a persona through configuration**
 
 As a maintainer, I want to add a persona without Python changes so that new subjects can be supported safely.
 
@@ -94,7 +94,7 @@ As a maintainer, I want to add a persona without Python changes so that new subj
 
 ### Sessions, user profile, and conversation memory
 
-**MEMORY-01 — Resume preparation later**
+**MEMORY-01 - Resume preparation later**
 
 As a teacher, I want to save and reload a preparation conversation so that I can continue working after closing SensAI.
 
@@ -103,7 +103,7 @@ As a teacher, I want to save and reload a preparation conversation so that I can
 - `/load <session_id>` restores prior user and assistant history while preserving the system prompt.
 - A missing session is reported without ending the CLI.
 
-**MEMORY-02 — Manage a long conversation**
+**MEMORY-02 - Manage a long conversation**
 
 As a teacher, I want to see and manage context use so that a long preparation does not exhaust the local model window unexpectedly.
 
@@ -114,7 +114,7 @@ As a teacher, I want to see and manage context use so that a long preparation do
 
 ### Logging and monitoring
 
-**OBS-01 — Diagnose a surprising response**
+**OBS-01 - Diagnose a surprising response**
 
 As a developer, I want local logs and request inspection so that I can understand RAG, persona, and tool behaviour without temporary `print` statements.
 
@@ -123,7 +123,7 @@ As a developer, I want local logs and request inspection so that I can understan
 - `/debug prompt` labels user, assistant, RAG, and tool messages while hiding system/profile data.
 - `/debug prompt --include-system` exposes the complete request only on demand.
 
-**OBS-02 — Observe local reliability**
+**OBS-02 - Observe local reliability**
 
 As a developer, I want local metrics so that I can identify slow calls and errors after a model, prompt, or feature change.
 
@@ -153,7 +153,7 @@ As a teacher who handles student information, I want to approve every web search
 
 ### CLI configuration and error handling
 
-**CLI-01 — Configure a local installation**
+**CLI-01 - Configure a local installation**
 
 As a teacher or maintainer, I want one configuration file so that SensAI can be adapted to the local computer without code changes.
 
@@ -162,7 +162,7 @@ As a teacher or maintainer, I want one configuration file so that SensAI can be 
 - `temperature` accepts 0 to 2 and `context_window` accepts integers of at least 512.
 - Changes apply after restarting SensAI.
 
-**CLI-02 — Recover from a failure clearly**
+**CLI-02 - Recover from a failure clearly**
 
 As a teacher, I want concise errors so that a local failure does not expose a traceback or prevent me from continuing.
 

@@ -11,6 +11,7 @@ def _dispatch_exit(
     """Save the current conversation, then ask the interactive loop to stop."""
     if context.feature_config.memory_enabled:
         context.conversation_session.save()
+        session.persistence_saved_on_exit = True
         if context.artifact_manager and context.artifact_manager.has_artifact():
             try:
                 context.artifact_manager.session_id = context.conversation_session.session_id
