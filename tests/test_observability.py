@@ -9,7 +9,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from support import use_temporary_working_directory
 from cli.cli import cli
 from cli.prompt_inspection import format_model_request
 from config import LoggingConfig
@@ -60,7 +62,7 @@ class TestPromptInspection(unittest.TestCase):
         )
 
         self.assertIn("System message", output)
-        self.assertIn("RAG context", output)
+        self.assertIn("RAG rules", output)
         self.assertIn("User message", output)
         self.assertNotIn("Base instructions", output)
 
@@ -83,6 +85,7 @@ class TestPromptInspection(unittest.TestCase):
         ]
         mock_client_class.return_value = client
         output = io.StringIO()
+        use_temporary_working_directory(self)  # cli() saves sessions/ and data/ in the current directory
 
         with patch("builtins.input", side_effect=["What time is it?", "/debug prompt", "exit"]), patch(
             "sys.stdout", output
