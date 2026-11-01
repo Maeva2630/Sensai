@@ -24,15 +24,17 @@ def run_tool_calls(
     monitoring_store: MonitoringStore | DisabledMonitoringStore | None = None,
     model_interaction_id: int = 0,
     confirm: Callable[[str], bool] | None = None,
+    emit: Callable[[str], None] = print,
 ) -> None:
     """Execute model-requested tools and append their results to chat history.
 
     A tool that asks for confirmation (it sends data outside the machine) runs only
-    if `confirm` approves; without a `confirm` function it is refused.
+    if `confirm` approves; without a `confirm` function it is refused. Progress lines go
+    to `emit` (the terminal by default).
     """
     for call in parse_tool_calls({"tool_calls": raw_tool_calls}):
         logger.info("tool.requested name=%s", call["name"])
-        print(f"[tool] {call['name']}({json.dumps(call['arguments'])})")
+        emit(f"[tool] {call['name']}({json.dumps(call['arguments'])})")
         started_at = perf_counter()
         tool = registry.get(call["name"])
         question = _confirmation_question(tool, call["arguments"])
@@ -58,7 +60,7 @@ def run_tool_calls(
             except (OSError, sqlite3.Error) as error:
                 # Observability is best effort and must never block a tool result.
                 logger.warning("monitoring.tool_write_failed error_type=%s", type(error).__name__)
-        print(f"[tool] {label}: {result.content}")
+        emit(f"[tool] {label}: {result.content}")
         content = mark_untrusted(call["name"], result.content) if tool is not None and tool.untrusted else result.content
         messages.append(build_tool_message(call["name"], content))
 

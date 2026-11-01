@@ -173,6 +173,15 @@ class LocalVectorStore:
         with self._connect() as connection:
             return connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
+    def list_sources(self) -> list[tuple[str, int]]:
+        """Return each indexed source filename with its number of chunks."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT source_filename, COUNT(*) AS chunk_count FROM chunks "
+                "GROUP BY source_filename ORDER BY source_filename"
+            ).fetchall()
+        return [(row["source_filename"], row["chunk_count"]) for row in rows]
+
     def _initialize_database(self) -> None:
         with self._connect() as connection:
             connection.execute(
