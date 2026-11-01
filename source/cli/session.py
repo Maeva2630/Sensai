@@ -47,6 +47,7 @@ class CliSession:
     metadata_filter: MetadataFilter | None = None
     show_sources: bool = True
     exit_requested: bool = False
+    persistence_saved_on_exit: bool = False
     last_request_messages: list[dict[str, Any]] | None = None
     last_rag_context: str | None = None
     active_persona_id: str = ""

@@ -1748,6 +1748,7 @@ class TestArtifactSessionLifecycle(unittest.TestCase):
         self.assertIn("# Exit Auto Save Doc", content)
         self.assertIn("Auto save content.", content)
         self.assertTrue(self.session.exit_requested)
+        self.assertTrue(self.session.persistence_saved_on_exit)
 
     def test_slash_exit_command_auto_saves_artifact(self):
         from cli.commands.system import _dispatch_exit
@@ -1762,6 +1763,7 @@ class TestArtifactSessionLifecycle(unittest.TestCase):
         content = Path(artifact_file).read_text(encoding="utf-8")
         self.assertIn("# Slash Exit Doc", content)
         self.assertTrue(self.session.exit_requested)
+        self.assertTrue(self.session.persistence_saved_on_exit)
 
 
 if __name__ == "__main__":
