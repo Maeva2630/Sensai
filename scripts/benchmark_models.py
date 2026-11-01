@@ -15,7 +15,7 @@ import platform
 import subprocess
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -73,7 +73,11 @@ def _ollama_rss_mib() -> float | None:
     """Return summed RSS for local Ollama server/runner processes in MiB."""
     rss_kib = 0
     found = False
-    for entry in Path("/proc").iterdir():
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:  # no /proc outside Linux (macOS, Windows): the metric is unavailable
+        return None
+    for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
@@ -290,7 +294,7 @@ def _ollama_metrics(chunk: dict[str, Any]) -> dict[str, float | int | None]:
 def _environment() -> dict[str, Any]:
     """Collect reproducible machine metadata without guessing unavailable values."""
     return {
-        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "operating_system": platform.platform(),
         "cpu_model": _cpu_model(),
         "ram_total_mib": _mem_total_mib(),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +192,7 @@ class MonitoringStore:
                 "component",
                 "TEXT NOT NULL DEFAULT 'tool'",
             )
-            cutoff = (datetime.now(UTC) - timedelta(days=self.retention_days)).isoformat()
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.retention_days)).isoformat()
             connection.execute("DELETE FROM tool_interactions WHERE timestamp < ?", (cutoff,))
             connection.execute("DELETE FROM model_interactions WHERE timestamp < ?", (cutoff,))
 
@@ -229,7 +229,11 @@ class MonitoringStore:
         if column := feature_columns.get(filters.feature):
             clauses.append(f"{column} = 1")
         if filters.tool_name:
-            clauses.append("EXISTS (SELECT 1 FROM tool_interactions t WHERE t.model_interaction_id = id AND t.tool_name = ?)")
+            # Qualify the outer id: a bare `id` would resolve to tool_interactions.id.
+            clauses.append(
+                "EXISTS (SELECT 1 FROM tool_interactions t "
+                "WHERE t.model_interaction_id = model_interactions.id AND t.tool_name = ?)"
+            )
             parameters.append(filters.tool_name)
         return (f"WHERE {' AND '.join(clauses)}" if clauses else "", parameters)
 
@@ -285,7 +289,7 @@ def estimate_tokens(messages: list[dict[str, Any]] | str) -> int:
 
 
 def _timestamp() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _percentile(values: list[float], percentile: float) -> float:
