@@ -45,6 +45,7 @@ def create_model_runtime(
             base_url=model_config.base_url,
             model=model,
             options={"temperature": model_config.temperature, "num_ctx": model_config.context_window},
+            request_timeout=model_config.request_timeout_seconds,
         )
         for model in chat_models
     )
@@ -57,6 +58,7 @@ def create_model_runtime(
         embedding_client = client_factory(
             base_url=model_config.base_url,
             model=model_config.embedding_model,
+            request_timeout=model_config.request_timeout_seconds,
         )
         rag_indexer = RAGIndexer(
             ingestor=DocumentIngestor(),

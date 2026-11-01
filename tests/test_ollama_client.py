@@ -8,10 +8,13 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "source")))
 
 from utilities.ollama_client import (
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    OllamaError,
     OllamaHTTPClient,
     OllamaConnectionError,
     OllamaModelNotFoundError,
     OllamaResponseError,
+    OllamaTimeoutError,
     build_tool_message,
     parse_tool_calls,
 )
@@ -38,7 +41,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
 
         models = self.client.list_models()
 
-        mock_get.assert_called_once_with("http://localhost:11434/api/tags", timeout=30)
+        mock_get.assert_called_once_with("http://localhost:11434/api/tags", timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
         self.assertEqual(models, ["llama3.2:latest", "qwen2.5:0.5b"])
 
     @patch("requests.get")
@@ -73,7 +76,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:11434/api/embed",
             json={"model": "llama3.2", "input": "Hello world"},
-            timeout=30,
+            timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
         self.assertEqual(res, {"embedding": [0.1, 0.2, 0.3]})
 
@@ -106,16 +109,60 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": False},
-            timeout=30,
+            timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
         self.assertEqual(res.status_code, 200)
 
     @patch("requests.post")
     def test_complete_message_connection_error(self, mock_post):
-        mock_post.side_effect = requests.exceptions.Timeout("Timeout error")
+        mock_post.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
         with self.assertRaises(OllamaConnectionError):
             self.client.complete_message([{"role": "user", "content": "Hi"}])
+
+    @patch("requests.post")
+    def test_slow_answer_is_a_timeout_not_a_connection_error(self, mock_post):
+        # Ollama is running but the model is too slow: telling the user to start
+        # Ollama would be wrong advice.
+        mock_post.side_effect = requests.exceptions.ReadTimeout("Read timed out")
+
+        with self.assertRaises(OllamaTimeoutError) as raised:
+            self.client.complete_message([{"role": "user", "content": "Hi"}])
+
+        self.assertNotIsInstance(raised.exception, OllamaConnectionError)
+        self.assertEqual(raised.exception.timeout, DEFAULT_REQUEST_TIMEOUT_SECONDS)
+
+    @patch("requests.post")
+    def test_connect_timeout_means_ollama_is_unreachable(self, mock_post):
+        mock_post.side_effect = requests.exceptions.ConnectTimeout("connect timed out")
+
+        with self.assertRaises(OllamaConnectionError):
+            self.client.complete_message([{"role": "user", "content": "Hi"}])
+
+    @patch("requests.post")
+    def test_invalid_json_answer_is_a_response_error(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(OllamaResponseError):
+            self.client.get_embedding("Hello")
+
+    def test_request_timeout_is_configurable(self):
+        client = OllamaHTTPClient(model="llama3.2", request_timeout=300)
+
+        self.assertEqual(client.request_timeout, 300)
+        with self.assertRaises(ValueError):
+            OllamaHTTPClient(model="llama3.2", request_timeout=0)
+
+    def test_update_options_changes_the_next_request(self):
+        client = OllamaHTTPClient(model="llama3.2", options={"temperature": 0.2, "num_ctx": 4096})
+
+        client.update_options({"temperature": 0.9})
+
+        payload = client._chat_payload([], False, None)
+        self.assertEqual(payload["options"], {"temperature": 0.9, "num_ctx": 4096})
 
     @patch("requests.post")
     def test_complete_message_model_not_found(self, mock_post):
@@ -124,8 +171,9 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_response.json.return_value = {"error": "model 'unknown:latest' not found, try pulling it first"}
         mock_post.return_value = mock_response
 
-        with self.assertRaises(OllamaModelNotFoundError):
+        with self.assertRaises(OllamaModelNotFoundError) as raised:
             self.client.complete_message([{"role": "user", "content": "Hi"}])
+        self.assertEqual(raised.exception.model, "llama3.2")
 
     @patch("requests.post")
     def test_complete_message_response_error(self, mock_post):
@@ -155,7 +203,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": True},
             stream=True,
-            timeout=30,
+            timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
         self.assertEqual(chunks, [
             b'{"message": {"content": "Hello"}}',
@@ -207,7 +255,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": False, "tools": self.TOOLS},
-            timeout=30,
+            timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
 
     @patch("requests.post")
@@ -224,7 +272,7 @@ class TestOllamaHTTPClient(unittest.TestCase):
             "http://localhost:11434/api/chat",
             json={"model": "llama3.2", "messages": messages, "stream": True, "tools": self.TOOLS},
             stream=True,
-            timeout=30,
+            timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
 
     @patch("requests.post")
@@ -338,77 +386,72 @@ class TestOllamaHTTPClient(unittest.TestCase):
         )
 
 
-def run_integration_test():
-    """Interactive integration test against a live Ollama server."""
-    print("=" * 60)
-    print("Running Interactive Integration Test against Live Ollama Server")
-    print("=" * 60)
+def run_integration_test() -> int:
+    """Live check against the Ollama server and models configured in config.json.
 
-    client = OllamaHTTPClient()
-    print(f"Connecting to: {client.base_url} (model: {client.model})")
+    Each step prints PASS or FAIL and the run ends with one verdict; the exit code is 0
+    only when every step passed, so the result can be read without knowing the code.
+    """
+    from config import load_config
 
-    # 1. Test list_models
-    try:
-        print("\n1. Testing list_models()...")
-        models = client.list_models()
-        print(f"[OK] Available models ({len(models)}): {models}")
-    except Exception as e:
-        print(f"[ERROR] Failed to list models: {e}")
-        return
+    config = load_config()
+    chat = OllamaHTTPClient(
+        base_url=config.model.base_url,
+        model=config.model.chat_model,
+        options={"temperature": 0, "num_ctx": config.model.context_window},
+        request_timeout=config.model.request_timeout_seconds,
+    )
+    embedder = OllamaHTTPClient(base_url=config.model.base_url, model=config.model.embedding_model)
+    results: list[tuple[str, bool, str]] = []
 
-    # Select model if default model isn't listed
-    if client.model not in models and models:
-        print(f"[WARNING] Model '{client.model}' not found in installed models. Switching to '{models[0]}'")
-        client.model = models[0]
+    def step(name, check):
+        try:
+            passed, detail = check()
+        except OllamaError as error:
+            passed, detail = False, f"{type(error).__name__}: {error}"
+        results.append((name, passed, detail))
+        print(f"{'PASS' if passed else 'FAIL'}  {name}: {detail}")
 
-    # 2. Test complete_message
-    try:
-        print(f"\n2. Testing complete_message() with model '{client.model}'...")
-        messages = [{"role": "user", "content": "Say 'Test passed!' in one sentence."}]
-        res = client.complete_message(messages)
-        if res.status_code == 200:
-            content = res.json().get("message", {}).get("content", "")
-            print(f"[OK] Response: {content.strip()}")
-        else:
-            print(f"[WARNING] HTTP {res.status_code}: {res.text}")
-    except Exception as e:
-        print(f"[ERROR] complete_message failed: {e}")
+    def models_installed():
+        installed = chat.list_models()
+        wanted = [config.model.chat_model, config.model.embedding_model]
+        missing = [model for model in wanted if not any(name.split(":")[0] == model.split(":")[0] for name in installed)]
+        return not missing, f"missing {missing}" if missing else f"{', '.join(wanted)} installed"
 
-    # 3. Test stream_message
-    try:
-        print(f"\n3. Testing stream_message() with model '{client.model}'...")
-        messages = [{"role": "user", "content": "Count from 1 to 5."}]
-        print("Output stream: ", end="", flush=True)
-        import json
-        for line in client.stream_message(messages):
+    def complete():
+        content = chat.complete_message([{"role": "user", "content": "Réponds seulement : OK"}]).json()["message"]["content"]
+        return "ok" in content.lower(), repr(content.strip()[:60])
+
+    def stream():
+        chunks, text, stats = 0, "", {}
+        for line in chat.stream_message([{"role": "user", "content": "Compte de 1 à 5."}]):
             if line:
-                data = json.loads(line)
-                tok = data.get("message", {}).get("content", "")
-                print(tok, end="", flush=True)
-        print("\n[OK] Streaming complete.")
-    except Exception as e:
-        print(f"\n[ERROR] stream_message failed: {e}")
+                payload = json.loads(line)
+                chunks += 1
+                text += payload.get("message", {}).get("content", "")
+                if payload.get("done"):
+                    stats = payload
+        speed = stats.get("eval_count", 0) / max(stats.get("eval_duration", 1) / 1e9, 1e-9)
+        return chunks > 1 and "5" in text, f"{chunks} chunks streamed, {speed:.1f} tokens/s"
 
-    # 4. Test get_embedding
-    try:
-        print(f"\n4. Testing get_embedding() with model '{client.model}'...")
-        emb = client.get_embedding("Hello test")
-        if "embedding" in emb:
-            print(f"[OK] Embedding vector generated (dim: {len(emb['embedding'])})")
-        elif "embeddings" in emb:
-            print(f"[OK] Embedding vector generated (dim: {len(emb['embeddings'][0])})")
-        else:
-            print(f"[INFO] Response: {emb}")
-    except Exception as e:
-        print(f"[ERROR] get_embedding failed: {e}")
+    def embed():
+        response = embedder.get_embedding("Les fractions équivalentes")
+        vectors = response.get("embeddings") or [response.get("embedding")]
+        dimension = len(vectors[0] or [])
+        return dimension > 0, f"{config.model.embedding_model}: {dimension} dimensions"
 
-    print("\n=" * 60)
-    print("Integration Test Completed!")
-    print("=" * 60)
+    print(f"Live Ollama check: {config.model.base_url}")
+    step("installed models", models_installed)
+    step("complete_message", complete)
+    step("stream_message", stream)
+    step("get_embedding", embed)
+    passed = sum(1 for _, ok, _ in results if ok)
+    print(f"VERDICT: {'PASS' if passed == len(results) else 'FAIL'} ({passed}/{len(results)} steps)")
+    return 0 if passed == len(results) else 1
 
 
 if __name__ == "__main__":
     if "--integration" in sys.argv or "-i" in sys.argv:
-        run_integration_test()
+        sys.exit(run_integration_test())
     else:
         unittest.main()

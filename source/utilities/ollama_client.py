@@ -3,7 +3,10 @@ import json
 from typing import List, Dict, Any, Generator, Optional
 
 
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+# Longest wait for the next piece of a response. A 3B model on a laptop needs more than
+# 30 s for a 20-question quiz (2,400 tokens at about 56 tokens/s), so the default is higher
+# and config.json can change it (model.request_timeout_seconds).
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 120
 
 
 class OllamaError(Exception):
@@ -18,7 +21,18 @@ class OllamaConnectionError(OllamaError):
 
 class OllamaModelNotFoundError(OllamaError):
     """Raised when the requested model is not found on Ollama."""
-    pass
+
+    def __init__(self, message: str, model: str = ""):
+        super().__init__(message)
+        self.model = model
+
+
+class OllamaTimeoutError(OllamaError):
+    """Raised when Ollama is reachable but does not answer within the request timeout."""
+
+    def __init__(self, message: str, timeout: float = 0.0):
+        super().__init__(message)
+        self.timeout = timeout
 
 
 class OllamaResponseError(OllamaError):
@@ -90,18 +104,45 @@ class OllamaHTTPClient:
         error_msg = ""
         try:
             data = response.json()
-            error_msg = data.get("error", response.text)
-        except Exception:
+            error_msg = data.get("error", response.text) if isinstance(data, dict) else response.text
+        except ValueError:
             error_msg = response.text or f"HTTP {response.status_code}"
 
-        if response.status_code == 404 or "not found" in error_msg.lower():
-            raise OllamaModelNotFoundError(f"Model '{self.model}' not found on Ollama server: {error_msg}")
+        if response.status_code == 404 or "not found" in str(error_msg).lower():
+            raise OllamaModelNotFoundError(
+                f"Model '{self.model}' not found on Ollama server: {error_msg}", model=self.model
+            )
         else:
             raise OllamaResponseError(
                 f"Ollama API error ({response.status_code}): {error_msg}",
                 status_code=response.status_code,
                 response_text=response.text,
             )
+
+    def _domain_error(self, error: Exception, action: str) -> OllamaError:
+        """Translate a low-level failure into the error the user can act on.
+
+        A refused connection, a slow model and a malformed answer need different
+        advice, so they must not all be reported as "Ollama is unreachable".
+        """
+        if isinstance(error, requests.exceptions.ConnectionError):
+            # Includes ConnectTimeout: the server could not be reached at all.
+            return OllamaConnectionError(f"Failed to connect to Ollama at {self.base_url}: {error}")
+        if isinstance(error, requests.exceptions.Timeout):
+            return OllamaTimeoutError(
+                f"Ollama did not answer within {self.request_timeout:g} s {action}.",
+                timeout=self.request_timeout,
+            )
+        if isinstance(error, ValueError):
+            # Includes requests' JSONDecodeError: the server answered, but not with JSON.
+            return OllamaResponseError(f"Ollama returned an invalid response {action}: {error}")
+        if isinstance(error, requests.exceptions.RequestException):
+            return OllamaConnectionError(f"Failed to connect to Ollama: {error}")
+        return OllamaResponseError(f"Unexpected error {action}: {error}")
+
+    def update_options(self, options: Dict[str, Any]) -> None:
+        """Change generation options (temperature, num_ctx...) for the next requests."""
+        self.options.update(options)
 
     def list_models(self) -> List[str]:
         """Fetch list of available models from Ollama."""
@@ -121,12 +162,10 @@ class OllamaHTTPClient:
                 for model in models_list
                 if isinstance(model, dict) and isinstance(model.get("name"), str)
             ]
-        except (OllamaModelNotFoundError, OllamaResponseError):
+        except OllamaError:
             raise
-        except requests.exceptions.RequestException as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Unexpected error while listing models: {e}") from e
+            raise self._domain_error(e, "while listing models") from e
 
     def get_embedding(self, text: str) -> Dict[str, Any]:
         """Generate embedding vector for a given text input."""
@@ -142,19 +181,19 @@ class OllamaHTTPClient:
             if not isinstance(data, dict):
                 raise OllamaResponseError("Ollama returned an invalid embedding response.")
             return data
-        except (OllamaModelNotFoundError, OllamaResponseError):
+        except OllamaError:
             raise
-        except requests.exceptions.RequestException as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Unexpected error while getting embedding: {e}") from e
+            raise self._domain_error(e, "while getting embedding") from e
 
     def _chat_payload(self, messages: List[Dict[str, Any]], stream: bool,
                       tools: Optional[List[Dict[str, Any]]],
-                      output_format: Any = None) -> Dict[str, Any]:
+                      output_format: Any = None,
+                      options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         payload = {"model": self.model, "messages": messages, "stream": stream}
-        if self.options:
-            payload["options"] = self.options
+        merged_options = {**self.options, **(options or {})}
+        if merged_options:
+            payload["options"] = merged_options
         if tools:
             payload["tools"] = tools
         if output_format:
@@ -178,20 +217,23 @@ class OllamaHTTPClient:
             if response.status_code != 200:
                 self._handle_error_response(response)
             return response
-        except (OllamaModelNotFoundError, OllamaResponseError):
+        except OllamaError:
             raise
-        except requests.exceptions.RequestException as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Unexpected error during completion: {e}") from e
+            raise self._domain_error(e, "during completion") from e
 
     def stream_message(self, messages: List[Dict[str, Any]],
-                       tools: Optional[List[Dict[str, Any]]] = None) -> Generator[bytes, None, None]:
-        """Send a streaming chat completion request and yield response chunks."""
+                       tools: Optional[List[Dict[str, Any]]] = None,
+                       options: Optional[Dict[str, Any]] = None) -> Generator[bytes, None, None]:
+        """Send a streaming chat completion request and yield response chunks.
+
+        `options` are added to the client's generation options for this request only
+        (for example `num_predict`, the longest answer allowed).
+        """
         try:
             response = requests.post(
                 f"{self.base_url}/api/chat",
-                json=self._chat_payload(messages, True, tools),
+                json=self._chat_payload(messages, True, tools, options=options),
                 stream=True,
                 timeout=self.request_timeout,
             )
@@ -199,9 +241,7 @@ class OllamaHTTPClient:
                 self._handle_error_response(response)
             for line in response.iter_lines():
                 yield line
-        except (OllamaModelNotFoundError, OllamaResponseError):
+        except OllamaError:
             raise
-        except requests.exceptions.RequestException as e:
-            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except Exception as e:
-            raise OllamaConnectionError(f"Unexpected error during streaming: {e}") from e
+            raise self._domain_error(e, "during streaming") from e
