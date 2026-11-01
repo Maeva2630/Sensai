@@ -4,6 +4,7 @@ import shlex
 
 from cli.error_handling import report_cli_error
 from cli.session import CliCommandContext, CliSession, CommandDefinition
+from cli.terminal import ask_confirmation
 from observability.app_logging import get_logger
 from rag.context import ArchiveIndexingResult, RAGIndexer
 from rag.embeddings import EmbeddingError
@@ -132,6 +133,23 @@ def _handle_rag_filter_command(
     return current_filter
 
 
+def _handle_rag_reset_command(user_input: str, rag_indexer: RAGIndexer) -> bool:
+    """Confirm and clear all local RAG chunks, texts, and embeddings."""
+    if user_input.strip() != "/rag reset":
+        print("Usage: /rag reset")
+        return False
+    if not ask_confirmation("Delete every indexed document, chunk, and embedding permanently?"):
+        print("RAG index reset cancelled.")
+        return False
+    try:
+        removed_chunks = rag_indexer.clear_index()
+    except VectorStoreError as error:
+        report_cli_error(error, logger)
+        return False
+    print(f"RAG index reset: {removed_chunks} chunks deleted.")
+    return True
+
+
 def _handle_sources_command(user_input: str, show_sources: bool) -> bool:
     """Enable, disable, or report CLI-generated source attribution lines."""
     command, _, option = user_input.partition(" ")
@@ -155,6 +173,22 @@ def _dispatch_rag_filter(
     _context: CliCommandContext,
 ) -> None:
     session.metadata_filter = _handle_rag_filter_command(user_input, session.metadata_filter)
+
+
+def _dispatch_rag_reset(
+    user_input: str,
+    session: CliSession,
+    context: CliCommandContext,
+) -> None:
+    """Clear the knowledge base only after an explicit terminal confirmation."""
+    if not context.feature_config.rag_enabled:
+        print("RAG is disabled in config.json.")
+        return
+    if _handle_rag_reset_command(user_input, context.rag_indexer):
+        session.rag_enabled = False
+        session.metadata_filter = None
+        session.last_rag_context = None
+        print("RAG mode disabled and metadata filters cleared.")
 
 
 def _dispatch_rag(
@@ -186,6 +220,13 @@ def _dispatch_sources(
 
 # Specific command names must be listed before generic ones.
 RAG_COMMANDS: tuple[CommandDefinition, ...] = (
+    CommandDefinition(
+        name="/rag reset",
+        usage="/rag reset",
+        description="Permanently delete every locally indexed document after confirmation.",
+        feature="RAG",
+        handler=_dispatch_rag_reset,
+    ),
     CommandDefinition(
         name="/rag filter",
         usage="/rag filter <name <source>[,<source>...]|category <type>[,<type>...]|clear>",

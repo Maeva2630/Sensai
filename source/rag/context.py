@@ -119,6 +119,10 @@ class RAGIndexer:
         ]
         return ArchiveIndexingResult(archive, indexed_documents)
 
+    def clear_index(self) -> int:
+        """Remove every stored document chunk and embedding from the local index."""
+        return self.vector_store.clear()
+
     def _index_ingested_document(self, document: IngestedDocument) -> IndexingResult:
         chunks = self.chunker.chunk(document)
         embedded_chunks = self.embedding_generator.embed_chunks(chunks)

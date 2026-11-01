@@ -17,6 +17,7 @@ from cli.commands.artifact import ARTIFACT_COMMANDS
 from cli.commands.rag import (
     _handle_rag_command,
     _handle_rag_filter_command,
+    _handle_rag_reset_command,
     _handle_sources_command,
 )
 from cli.session import CliCommandContext, CliSession, CommandDefinition
@@ -317,6 +318,31 @@ class TestCLIExceptionHandling(unittest.TestCase):
         self.assertEqual(category_filter.source_types, ("code",))
         self.assertIsNone(cleared_filter)
         self.assertIn("RAG metadata filter cleared.", captured_output.getvalue())
+
+    @patch("cli.commands.rag.ask_confirmation", return_value=True)
+    def test_rag_reset_requires_confirmation_and_clears_the_index(self, _confirmation):
+        indexer = MagicMock()
+        indexer.clear_index.return_value = 4
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            reset = _handle_rag_reset_command("/rag reset", indexer)
+
+        self.assertTrue(reset)
+        indexer.clear_index.assert_called_once_with()
+        self.assertIn("RAG index reset: 4 chunks deleted.", captured_output.getvalue())
+
+    @patch("cli.commands.rag.ask_confirmation", return_value=False)
+    def test_rag_reset_cancellation_keeps_the_index(self, _confirmation):
+        indexer = MagicMock()
+        captured_output = io.StringIO()
+
+        with patch("sys.stdout", captured_output):
+            reset = _handle_rag_reset_command("/rag reset", indexer)
+
+        self.assertFalse(reset)
+        indexer.clear_index.assert_not_called()
+        self.assertIn("RAG index reset cancelled.", captured_output.getvalue())
 
     @patch("cli.cli.OllamaHTTPClient")
     def test_cli_ingest_command_keeps_a_path_with_spaces_intact(self, mock_client_cls):

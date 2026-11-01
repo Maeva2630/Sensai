@@ -55,6 +55,7 @@ encrypted entries, and excessive sizes, nesting, file counts, or compression rat
 /rag filter name guide.md,notes.md
 /rag filter category code
 /rag filter clear
+/rag reset
 /sources status
 /sources off
 /sources on
@@ -63,6 +64,12 @@ encrypted entries, and excessive sizes, nesting, file counts, or compression rat
 Categories are `document`, `code`, `configuration`, and `markup`. Only matching chunks
 are considered when a filter is active. The source commands control the CLI-generated
 attribution line, not retrieval or citations the model might itself generate.
+
+`/rag reset` asks for an explicit confirmation, then permanently deletes every indexed
+chunk, extracted text, and embedding from `data/sensai_rag.sqlite3`. The SQLite file and
+its schema remain so that the next `/ingest` starts with a clean index. It also disables
+RAG for the current session and clears any metadata filter. This action cannot be undone:
+keep the original source documents if you may need to index them again.
 
 ## Configuration and limitations
 
@@ -78,9 +85,9 @@ Python defaults in `source/rag/chunking.py`, not CLI configuration options. The
 chunker prefers readable boundaries and considers source structure for supported code
 and markup. Search only considers embeddings generated with the configured model and
 matching dimensions. Re-ingesting unchanged chunks after changing models does not replace
-their existing vectors in the current database. The CLI does not yet provide an index
-rebuild or document-removal command: preserve your existing database and plan a separate
-re-indexing workflow before changing embedding models.
+their existing vectors in the current database. Use `/rag reset` before a full re-index
+when changing embedding models; it deletes the current index rather than removing or
+modifying the original source documents.
 
 The assistant is instructed to say when the answer is missing, but a model can still
 ignore instructions or generate inaccurate text. RAG context remains available when tools
