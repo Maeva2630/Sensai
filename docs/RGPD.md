@@ -1,47 +1,70 @@
-# Personal data (RGPD)
+# Local data, privacy, and GDPR-oriented assessment
 
-SensAI is used by teachers, so conversations can contain student names, grades and comments. This page says what is stored, what can leave the machine, and what to do after a leak. It is a working summary for the project, not legal advice.
+SensAI is designed to run locally: the default configuration uses a local Ollama server, and RAG documents, conversations, and metrics stay on the computer. This reduces routine sharing with a cloud AI provider, but does not protect against an insecure, shared, unlocked, or compromised device.
 
-## What is stored and where
+Do not use real pupil names, grades, health information, or other sensitive information unless the school has approved the workflow and the device is properly protected.
 
-| Data | Where | Protection |
-|---|---|---|
-| Conversations | `sessions/<id>.json` | Owner-only permissions (folder 700, files 600). Session ids are validated, so a file can never be written outside `sessions/`. |
-| Profile (name, language, constraints) | `profile.json` | Owner-only permissions (600). |
-| Course documents and their embeddings | `data/` (local vector store) | Local only. |
-| Usage metrics | `data/sensai_monitoring.sqlite3` | Off by default. Stores no prompt or answer, only counts and latencies. Purged after `retention_days` (30). |
-| Logs | `logs/sensai.log` | Local file, never printed in the terminal. |
+## What SensAI stores
 
-Everything runs on the user's machine with a local Ollama model. No account, no cloud service.
+| Data | Location | Retention and deletion |
+| --- | --- | --- |
+| Indexed documents, chunks, and embeddings | `data/sensai_rag.sqlite3` | Kept until `/rag reset` or deletion of the database file. `/rag reset` does not delete the original document. |
+| Conversation history and generated artefacts | `sessions/` | No automatic expiry. Use `/forget`, `/forget all`, or `scripts/clean_sessions.sh`. |
+| Teacher profile | `profile.json`, or the path passed to `--profile` | Kept until manually edited or deleted. Keep only teaching preferences, not pupil data. |
+| Logs | `logs/sensai.log` | No automatic expiry; delete or rotate it manually. Logs can contain technical details or paths. |
+| Monitoring metadata | `data/sensai_monitoring.sqlite3` when enabled | Disabled by default. Rows older than `retention_days` are deleted when monitoring starts; default: 30 days. |
+| Configuration, prompts, and MCP settings | `config.json`, `prompts/*.txt`, `mcp_servers.json` | Stored until manually changed. Never put credentials or personal data in versioned files. |
+| Quiz exports | An allowed directory such as `exports/` | Kept until manually deleted. They may reproduce information from an entered prompt or source document. |
 
-## What can leave the machine
+The generated SQLite databases, session directory, and log files are Git-ignored. The
+repository's `profile.json` is only a non-sensitive example; a real profile should not be
+committed.
 
-Only network features: `web_search` and the `web` MCP server (`fetch`).
+## Current protections and limits
 
-- Off by default (`features.network_enabled`: `false`).
-- Each call shows the exact text or URL and needs a yes before it is sent.
-- The confirmation warns when the text looks like an e-mail, phone number, IBAN or long identifier. Names cannot be detected reliably, so the question itself is the protection: do not accept a search that contains a student's name.
-- MCP servers get a filtered environment: API keys and tokens of the user's shell are not passed on.
-- Web results and pages are treated as data, never as instructions, to reduce prompt injection that tries to push private data into a query.
+- **Local by default:** `features.network_enabled` is `false` in the root configuration.
+- **Controlled external calls:** when network tools are enabled, SensAI requests
+  confirmation before web or network-MCP calls. This is a warning, not a guarantee: names
+  and most educational identifiers cannot be detected reliably.
+- **Private local files:** new session files and profiles use `0700`/`0600` permissions on
+  systems that support them. They are not encrypted.
+- **Safer RAG ingestion:** ZIP archives have size, file-count, nesting, compression-ratio,
+  and path-traversal limits. These prevent resource abuse, not confidential-data exposure.
+- **Restricted tools:** filesystem tools are limited by `permissions.json`; tool outputs are
+  truncated and presented to the model as untrusted data.
+- **Privacy-preserving monitoring:** monitoring stores metrics such as latency and token
+  estimates, but not raw prompts, responses, RAG excerpts, tool arguments, or profiles.
+- **MCP caution:** configured MCP servers run commands on the local computer. SensAI filters
+  inherited environment variables, but explicitly configured server environment values are
+  passed through. Only use reviewed servers and never commit secrets.
 
-## Rights and retention
+Local storage isolates teachers from one another: a malicious document indexed on one
+computer cannot affect another teacher’s separate installation. However, that document
+can still mislead the model on the computer where it was indexed.
 
-- **Erasure:** `/forget` deletes this session's saved copy and clears it from memory. `/forget all` deletes every saved session (asks first).
-- **Access:** conversations are plain JSON files the user can open, copy or print.
-- **Retention:** SensAI does not delete sessions by itself. The user decides with `/forget` or `clean_sessions.sh`. Metrics are purged automatically.
-- **Minimisation:** the profile holds a few preferences. Metrics hold no content.
+## Main risks and practical response
 
-## If a leak happens
+| Risk | What to do |
+| --- | --- |
+| Shared account, stolen device, or malware | Use separate accounts, screen lock, full-disk encryption, updates, and protected backups. Permissions alone are insufficient. |
+| Accidental Git commit or shared screenshot/archive | Check `git status`; review attachments; never force-add sessions, logs, databases, real profiles, or course documents. |
+| Enabled web search or network MCP | Keep network disabled for pupil-related work. Refuse any request that would send names or identifiers outside the computer. |
+| Untrusted document or MCP server | Verify sources before ingestion; inspect source attribution; review MCP code, arguments, permissions, and environment values. |
+| Data incident | Preserve evidence, notify the school/DPO, identify the affected data and people, contain the exposure, then remove unnecessary copies. |
 
-1. **Contain:** stop using the machine or account concerned, revoke shared access, keep the evidence (logs, dates).
-2. **Assess:** which data (grades, names, minors?), how many people, was it readable (files are not encrypted, only protected by permissions).
-3. **Record:** write it in the breach register (what, when, who, effect, measures), even if no notification follows.
-4. **Notify:** the data protection officer of the school or organisation, which decides on notifying the CNIL within 72 hours when people are at risk, and on informing the students or their guardians when the risk is high.
-5. **Fix:** change what failed, then check `sessions/` and `profile.json` permissions and delete what is no longer needed with `/forget all`.
+If a personal-data breach presents a risk to people’s rights and freedoms, the organisation
+responsible for the data decides whether to notify the CNIL. The CNIL states that a
+notification should be made promptly and, where possible, within 72 hours after the
+organisation becomes aware of the incident. See [CNIL breach guidance](https://www.cnil.fr/fr/violations-de-donnees-personnelles-les-regles-suivre).
 
-## Known limits
+## Recommended usage checklist
 
-- Files are protected by permissions, not encrypted. Full-disk encryption of the machine is recommended.
-- Sessions saved before this protection keep their old permissions until they are saved again.
-- Personal data detection only catches obvious formats. It does not detect names.
-- DuckDuckGo receives the query when the user accepts a search.
+- Prefer anonymised or fictional examples for tests, demos, and screenshots.
+- Keep network access disabled unless an external search is genuinely necessary.
+- Delete no-longer-needed RAG data with `/rag reset` and conversations with `/forget all`.
+- Delete or rotate logs and review monitoring retention regularly.
+- Treat every model answer and retrieved source as material to verify before use with pupils.
+
+Related documentation: [RAG](features/rag.md), [sessions and profile](features/sessions-and-profile.md),
+[tools and MCP](features/tools-and-mcp.md), [observability](features/observability.md), and
+[configuration](configuration.md).
