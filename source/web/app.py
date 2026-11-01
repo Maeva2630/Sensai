@@ -20,25 +20,38 @@ from time import perf_counter
 from typing import Any
 
 import cli.commands.memory as memory_commands
+import cli.commands.rag as rag_commands
 from cli.cli import (
+    EMPTY_ANSWER_NOTICE,
     MAX_TOOL_ITERATIONS,
+    NO_EVIDENCE_NOTE,
     RAG_TOOLS_NOTE,
     CliDependencies,
+    _check_context_budget,
     _create_monitoring_store,
+    _default_mcp_manager,
     _dispatch_command,
     _ensure_base_system_message,
+    _record_generation,
     _record_model_interaction,
+    _record_request,
     _request_messages,
+    _run_claimed_tool,
     _take_web_sources,
     default_registry,
+    injection_warning,
+    no_evidence_answer,
     stream_response,
 )
 from cli.commands import GLOBAL_COMMANDS
 from cli.commands.help import display_unknown_command
+from cli.context_budget import answer_limit_notice, answer_reserve
 from cli.error_handling import format_cli_error
 from cli.model_factory import create_model_runtime
 from cli.session import CliCommandContext, CliSession
 from cli.tool_calls import run_tool_calls
+from dataclasses import replace
+
 from config import AppConfig
 from mcp.manager import MCPManager
 from memory.artifact_manager import ArtifactManager
@@ -110,13 +123,9 @@ class WebApp:
                 features.tools_enabled, permission_checker, quiz_store, features.network_enabled, self.artifact_manager
             )
         )
-        mcp_manager = (
-            mcp_manager
-            if mcp_manager is not None
-            else MCPManager.from_config_file(network_enabled=features.network_enabled)
-        )
-        self.startup_warnings += mcp_manager.start() + mcp_manager.register_tools(self.registry)
+        mcp_manager = mcp_manager if mcp_manager is not None else _default_mcp_manager(features)
         atexit.register(mcp_manager.close)
+        self.startup_warnings += mcp_manager.start() + mcp_manager.register_tools(self.registry)
         runtime = create_model_runtime(
             app_config.model,
             app_config.rag,
@@ -206,7 +215,7 @@ class WebApp:
             _take_web_sources(registry)
             messages.append({"role": "user", "content": user_input})
             tools = registry.to_ollama_tools(user_input)
-            rag_system_message = None
+            rag_rules = None
             prepared_context = None
             if session.rag_enabled and not registry.claims_request(user_input):
                 provider = self.runtime.rag_context_provider
@@ -214,16 +223,55 @@ class WebApp:
                     prepared_context = provider.prepare(user_input)
                 else:
                     prepared_context = provider.prepare(user_input, session.metadata_filter)
-                rag_system_message = prepared_context.system_message
+                rag_rules = prepared_context.system_message
                 if tools:
-                    rag_system_message += RAG_TOOLS_NOTE
+                    rag_rules += RAG_TOOLS_NOTE
                 if session.metadata_filter and not prepared_context.results:
                     emit({"type": "notice", "text": "No indexed chunks match the active RAG filter."})
+                warning = injection_warning(prepared_context)
+                if warning:
+                    emit({"type": "notice", "text": warning})
 
+            # Same guard as the terminal: above num_ctx Ollama would silently drop the
+            # beginning of the prompt, so older turns are summarised or the message refused.
+            request_messages = _request_messages(messages, prepared_context, rag_rules, turn_start)
+            refusal = _check_context_budget(session, request_messages, tools)
+            if refusal and features.memory_enabled and self._compress_before(turn_start) is not None:
+                turn_start = len(messages) - 1
+                emit({"type": "notice", "text": "Context nearly full: older turns were summarised before sending."})
+                request_messages = _request_messages(messages, prepared_context, rag_rules, turn_start)
+                refusal = _check_context_budget(session, request_messages, tools)
+            if refusal:
+                del messages[turn_start:]
+                emit({"type": "notice", "text": refusal})
+                return
+
+            if prepared_context is not None and not prepared_context.results and not tools:
+                full_response = no_evidence_answer(self.profile_manager.data.get("preferred_language"))
+                emit({"type": "token", "text": full_response})
+                emit({"type": "notice", "text": NO_EVIDENCE_NOTE})
+                messages.append({"role": "assistant", "content": full_response})
+                self.conversation_session.add_message("user", user_input)
+                self.conversation_session.add_message("assistant", full_response)
+                self._autosave()
+                return
+
+            tool_lines = lambda line: emit({"type": "tool", "text": line})  # noqa: E731
+            tools_used = _run_claimed_tool(
+                registry,
+                user_input,
+                messages,
+                monitoring_store=self.context.monitoring_store,
+                confirm=self._confirm(emit),
+                emit=tool_lines,
+            )
+            full_response, raw_tool_calls = "", []
             for _ in range(MAX_TOOL_ITERATIONS):
-                request_messages = _request_messages(messages, rag_system_message)
-                session.last_request_messages = [message.copy() for message in request_messages]
-                session.last_rag_context = rag_system_message
+                request_messages = _request_messages(messages, prepared_context, rag_rules, turn_start)
+                if _check_context_budget(session, request_messages, tools):
+                    emit({"type": "notice", "text": "The tool results filled the context window; stopping this answer here."})
+                    break
+                _record_request(session, request_messages, tools, rag_rules, self.runtime.chat_client)
                 started_at = perf_counter()
                 token_counts: dict[str, int] = {}
                 try:
@@ -233,6 +281,7 @@ class WebApp:
                         tools,
                         token_counts=token_counts,
                         on_token=lambda text: emit({"type": "token", "text": text}),
+                        max_answer_tokens=answer_reserve(session.context_window),
                     )
                 except OllamaError as error:
                     self._record(request_messages, "", prepared_context, started_at, "error", type(error).__name__)
@@ -243,6 +292,11 @@ class WebApp:
                     token_counts.get("prompt_tokens", estimate_tokens(request_messages)),
                     token_counts.get("completion_tokens", estimate_tokens(full_response)),
                 )
+                if token_counts.get("stopped_at_limit"):
+                    emit({"type": "notice", "text": answer_limit_notice(session.context_window)})
+                if "prompt_tokens" in token_counts:
+                    session.token_estimator.learn(request_messages, tools, token_counts["prompt_tokens"])
+                _record_generation(session, token_counts)
                 interaction_id = self._record(request_messages, full_response, prepared_context, started_at, "success")
 
                 assistant_message: dict[str, Any] = {"role": "assistant", "content": full_response}
@@ -251,7 +305,7 @@ class WebApp:
                 messages.append(assistant_message)
 
                 if not raw_tool_calls:
-                    if session.show_sources and prepared_context is not None:
+                    if session.show_sources and prepared_context is not None and not tools_used:
                         attribution = format_source_attribution(prepared_context.results)
                         if attribution:
                             emit({"type": "sources", "text": attribution})
@@ -266,10 +320,13 @@ class WebApp:
                     self.context.monitoring_store,
                     interaction_id,
                     confirm=self._confirm(emit),
-                    emit=lambda line: emit({"type": "tool", "text": line}),
+                    emit=tool_lines,
                 )
+                tools_used = True
             else:
                 emit({"type": "notice", "text": f"Stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer."})
+            if not full_response.strip() and not raw_tool_calls:
+                emit({"type": "notice", "text": EMPTY_ANSWER_NOTICE})
         except Exception:
             del messages[turn_start:]
             raise
@@ -299,7 +356,7 @@ class WebApp:
             self.context,
             self._active_model(),
             self.config.monitoring.prompt_version,
-            self.config.features,
+            replace(self.config.features, rag_enabled=prepared_context is not None),
             request_messages,
             response_text,
             prepared_context,
@@ -307,6 +364,18 @@ class WebApp:
             status,
             error_category,
         )
+
+    def _compress_before(self, turn_start: int) -> str | None:
+        """Summarise the turns before the current question. Returns a description, or None."""
+        history, current_turn = self.messages[:turn_start], self.messages[turn_start:]
+        compressed, result = compress_history(history, self.runtime.chat_client)
+        if not result.compressed:
+            return None
+        self.messages[:] = [*compressed, *current_turn]
+        self.conversation_session.messages[:] = [
+            dict(message) for message in compressed if message.get("role") != "system" or is_summary_message(message)
+        ]
+        return f"{result.messages_before} -> {result.messages_after} messages"
 
     def _compress(self) -> str | None:
         """Summarise older turns. Returns a short description, or None when nothing changed."""
@@ -338,12 +407,15 @@ class WebApp:
     def _execute_command(self, text: str, *, confirmed: bool = False) -> str:
         """Reuse the terminal command handlers and capture their output.
 
-        Their confirmation prompt (`/forget all`) reads the terminal, so it is replaced by the
-        answer the browser already collected: refused unless `confirmed`.
+        Their confirmation prompts (`/forget all`, `/rag reset`) read the terminal, which would
+        block the server, so they are replaced by the answer the browser already collected:
+        refused unless `confirmed`.
         """
         buffer = io.StringIO()
-        original_confirm = memory_commands.ask_confirmation
-        memory_commands.ask_confirmation = lambda _question: confirmed
+        modules = (memory_commands, rag_commands)
+        originals = [module.ask_confirmation for module in modules]
+        for module in modules:
+            module.ask_confirmation = lambda _question: confirmed
         try:
             with redirect_stdout(buffer):
                 try:
@@ -352,7 +424,8 @@ class WebApp:
                 except Exception as error:
                     print(format_cli_error(error, logger))
         finally:
-            memory_commands.ask_confirmation = original_confirm
+            for module, original in zip(modules, originals):
+                module.ask_confirmation = original
         if self.session.exit_requested:  # /exit and /quit mean nothing in a browser tab
             self.session.exit_requested = False
             buffer.write("\nThe web page stays open: just close the tab when you are done.")
@@ -433,8 +506,9 @@ class WebApp:
 
     def saved_sessions(self) -> list[dict[str, str]]:
         """The most recent saved conversations, newest first, with the first question as a preview."""
-        storage = self.conversation_session.storage_dir
-        paths = sorted(storage.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True) if storage.is_dir() else []
+        paths = sorted(
+            self.conversation_session.saved_session_paths(), key=lambda path: path.stat().st_mtime, reverse=True
+        )
         sessions = []
         for path in paths[:MAX_LISTED_SESSIONS]:
             try:
