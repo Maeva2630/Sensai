@@ -1,6 +1,6 @@
 # Product scenario
 
-[Home](../README.md) · [User stories](user-stories.md) · [Technical decisions](decisions.md) · [Demo script](../demo/demo-script.md) · [Model benchmarks](model-benchmarks.md)
+[Home](../README.md) · [User stories](user-stories.md) · [Technical decisions](decisions.md) · [Demo script](../demo/scenario.md) · [Model benchmarks](model-benchmarks.md)
 
 ## Product vision
 
@@ -61,28 +61,17 @@ The scenario also delimits the scope. These exclusions are argued in [technical 
 
 ## Usage scenario: preparing Monday's fractions lesson
 
-Sunday evening, at home. On Monday, Camille introduces equivalent fractions to one of her *sixième* classes. Each step names the feature it relies on and the story that justifies it. Use only fictional data when replaying it: never real pupil names or marks.
+Sunday evening, at home, Camille prepares an equivalent-fractions lesson for one of her *sixième* classes. She uses fictional course material, never real pupil names or marks.
 
-| # | What Camille does | Command or input | Feature | Story | Live demo |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Starts SensAI with her profile and the mathematics assistant. | `python3 source/main.py --profile demo/profile_camille.json`, `/persona use mathematics-assistant` | M1, A5 | M1-02, A5-01 | 0:00–0:25 |
-| 2 | Indexes the progression of the 6e B, the test instructions and the equivalent-fractions lesson. | `/ingest --multiple courses/progression_6e_B.md courses/consignes_evaluation.md courses/fractions_equivalentes.md`, `/rag on` | R1 | R1-01 | 0:25 |
-| 3 | Asks when and where the common test takes place. | `Quand a lieu le contrôle commun de fractions et dans quelle salle ?` | R1 | R1-01 | 0:45 |
-| 4 | Checks what was actually sent to the model. | `/debug prompt` | EV3 | EV3-02 | 1:05 |
-| 5 | Asks something her course does not cover and gets "not found", without a model call. | `Quelle est la capitale de l'Australie ?` | R2 | R2-02 | 1:30 |
-| 6 | Imports a colleague's file that hides an instruction for the AI; SensAI warns her. | `/ingest demo/progression_piegee.md`, then a question on it | R1 (safety) | R1-03 | 1:45–2:00 |
-| 7 | Computes a pupil's weighted average with the teacher tools server. | `Calcule la moyenne pondérée d'Inès : 16, 14 et 15 avec les coefficients 1, 1 et 2.` | T1 | T1-01 | 2:20 |
-| 8 | Sees how fast her laptop answers. | `/stats` | EV3 | EV3-02 | 2:40 |
-| 9 | Saves, stops, and resumes the conversation the next day. | `/save`, `exit`, `python3 source/main.py --session <id> --profile demo/profile_camille.json` | M1 | M1-01 | 2:55 |
-| 10 | Reuses the earlier answer. | `Transforme ta réponse sur la date et la salle du contrôle commun en un rappel court à écrire au tableau pour les élèves.` | M1 | M1-01 | 3:15 |
-| 11 | Checks the context budget and the local metrics. | `/tokens`, `/metrics` | M2, EV3 | M2-01, EV3-01 | 3:35 |
-| 12 | Erases the conversation. | `/forget` | M1 (privacy) | M1-03 | 4:00 |
-| 13 | Builds the lesson plan, then exports it. | `/artifact init Séance fractions équivalentes`, `/artifact export exports/plan-fractions.md` | M4, X3 | M4-01, X3-02 | No |
-| 14 | Generates the 5-question check and saves a pupil copy. | `/quiz --questions 5 --save exports/fractions-eleves.txt --no-answers Les fractions équivalentes` | T5, X3 | T5-01, X3-01 | No |
-| 15 | With network access turned on, looks up a source and approves the exact query. | `Cherche sur le web ...`, then `y` | T3 | T3-01, T3-02 | No |
-| 16 | A primary-school colleague does the same from a web page. | `python3 source/main.py --web` | X1 | X1-01 | No (recording) |
+SensAI supports this workflow by letting her:
 
-The [live demonstration](../demo/demo-script.md) lasts about 5 minutes and covers steps 1 to 12. Steps 13 to 16 are covered by automated tests (listed in each story) and by the recordings kept as a fallback; they can be shown on request. All data comes from the fictional course in [`courses/`](../courses/) and [`demo/`](../demo/).
+- select a mathematics-focused persona and use her local teacher profile;
+- index her course material and retrieve the source of a practical answer;
+- generate or verify teaching material with controlled tools;
+- save the preparation session and resume it the next day; and
+- inspect local metrics, then delete the saved conversation when it is no longer needed.
+
+The exact commands, expected output, spoken lines, timing, and fallback plan belong only to the [live demonstration script](../demo/scenario.md). User-story acceptance criteria and automated-test traceability are maintained in [user stories](user-stories.md).
 
 ## Hardware feasibility
 

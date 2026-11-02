@@ -4,7 +4,9 @@
 prepares the fractions sequence of the week with her own course documents, on her own
 laptop, without sending pupil information to an online service.
 
-**Target duration:** 5 minutes · **Presenters:** 3 · **Machine:** the presenter's laptop
+**Target duration:** 5 minutes
+**Presenters:** 3
+**Machine:** the presenter's laptop
 (Apple M5, 16 GB, qwen2.5:3b ≈ 59 tokens/s), Ollama already running.
 
 All data is fictional (`courses/`, `demo/`). Persona: [product scenario](../docs/products-scenario.md).
@@ -24,16 +26,13 @@ ollama serve                      # terminal A (skip if "address already in use"
 source .venv/bin/activate         # terminal B, repository root
 pip install -r requirements.txt   # once: PDF/DOCX support
 ollama list                       # qwen2.5:3b, llama3.2:latest, nomic-embed-text
-python3 tests/test_ollama_client.py --integration   # expect "VERDICT: PASS (4/4 steps)"
-scripts/clean_sessions.sh         # no conversation left from rehearsal
 rm -f data/sensai_rag.sqlite3     # empty document index (or /rag reset inside SensAI)
 ollama run qwen2.5:3b "OK" >/dev/null   # load the model in memory: no cold start on stage
 ```
 
 - [ ] `config.json`: `memory_enabled` true, `monitoring.enabled` true, `network_enabled` false.
 - [ ] Terminal font large enough for the back row; `NO_COLOR` unset.
-- [ ] Terminal C prepared with `python3 source/main.py --profile demo/profile_camille.json --session ` (the identifier is pasted at 2:55).
-- [ ] Fallback recordings open in a background window (see the end of this document).
+- [ ] Terminal C prepared with `python3 source/main.py --profile demo/profile_camille.json --session`.
 
 ## Live script
 
