@@ -95,7 +95,7 @@ Camille prepares lessons; she does not use SensAI live in front of pupils. The q
 | Apple M5, 16 GB unified memory (Camille's reference machine) | `qwen2.5:3b` | 58.1 to 58.7 tokens/s (three runs) | 2.2 GB for the chat model at `num_ctx` 4,096, plus 336 MB for `nomic-embed-text` (274 MB on disk) | [Model benchmarks: Apple M5](model-benchmarks.md#second-machine-apple-m5-unified-memory), 2026-11-01; embedding model size from Ollama `/api/ps` |
 | Laptop with AMD Ryzen 7 8845HS, 14 GiB RAM, NVIDIA RTX 4060 (8 GB VRAM) | `qwen2.5:3b` | 111.0 tokens/s (warm mean) | 2,444 MiB peak VRAM (warm) | [Model benchmarks](model-benchmarks.md#results-table---measured-on-2026-10-27), 2026-10-27 |
 | Same laptop | `qwen2.5:7b` | 53.7 tokens/s (warm mean) | 4,858 MiB peak VRAM (warm) | [Model benchmarks](model-benchmarks.md#results-table---measured-on-2026-10-27) |
-| Laptop without a GPU (CPU only) | — | **Not measured** | **Not measured** | — |
+| Laptop without a GPU (CPU only) | - | **Not measured** | **Not measured** | - |
 
 ### What it means for Camille's tasks
 

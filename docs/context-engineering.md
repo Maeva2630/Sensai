@@ -180,7 +180,7 @@ Two requests no longer depend on the model's judgement:
 |---|---|---|---|---|
 | `temperature` | 0.2 | `--temperature 0.8` | `/set temperature 0.8` | 0 → same title 3 times out of 3; 1.2 → 3 different titles out of 3 (audit). Quizzes and facts need low values; brainstorming can use more. |
 | `context_window` (`num_ctx`) | 4096 | `--context-window 8192` | `/set context 8192` | +144 MiB VRAM from 4,096 to 8,192 ([benchmarks](model-benchmarks.md)); Ollama reloads the model on the next request. |
-| chat model | qwen2.5:3b | `--model llama3.2:latest` | — | See [benchmarks](model-benchmarks.md). |
+| chat model | qwen2.5:3b | `--model llama3.2:latest` | - | See [benchmarks](model-benchmarks.md). |
 
 `config.json` keeps the defaults; `/set` and the command-line options only last for one run,
 so a live comparison never changes the teacher's setup by accident.

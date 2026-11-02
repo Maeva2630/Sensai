@@ -9,7 +9,7 @@
 | Conversation | `sessions/<session_id>.json` | `session_id`, `timestamp`, and the list of user and assistant messages (text only). The persona, the profile, retrieved excerpts and tool calls are **not** stored: they are rebuilt for each request. A conversation summary replaces the older turns after compression. | `/save`, `exit`, `quit`, Ctrl+D, Ctrl+C (CLI); after every answer (web page). An empty conversation is never written. |
 | Shared document (artifact) | `sessions/<session_id>_artifact.md` and `.json` | The document edited with `/artifact` or `/doc` | Same moments, when an artifact exists |
 | Profile | `profile.json` or the file given to `--profile` | `user_name`, `preferred_language`, `domain_expertise`, `constraints` | Created with neutral values if missing; edited by hand or from the web page |
-| Active persona | Not persisted | — | Each start uses `personas.active_persona` from `config.json`; `/persona use` lasts for the session |
+| Active persona | Not persisted | - | Each start uses `personas.active_persona` from `config.json`; `/persona use` lasts for the session |
 
 All these files are owner-only (`0600`), see [GDPR](../RGPD.md).
 

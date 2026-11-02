@@ -37,7 +37,7 @@ and test data in `courses/` and `demo/` are fictional.
 | Logs | `logs/sensai.log` | Owner only | No automatic expiry; delete or rotate manually. They contain technical events, file names of indexed documents and error tracebacks, not conversation text. |
 | Monitoring metadata | `data/sensai_monitoring.sqlite3` | Owner only | Enabled in the repository configuration for `/metrics`. Stores latency, token counts, feature flags and tool names, **never text**. Rows older than `retention_days` (30) are deleted at startup. |
 | Quiz and file exports | An allowed folder such as `exports/` | Owner only | Kept until manually deleted; they may reproduce a prompt or a course document. Each file written by the model required a "yes". |
-| Configuration and prompts | `config.json`, `prompts/*.txt`, `mcp_servers.json`, `permissions.json` | — | Never put credentials or personal data in versioned files. |
+| Configuration and prompts | `config.json`, `prompts/*.txt`, `mcp_servers.json`, `permissions.json` | - | Never put credentials or personal data in versioned files. |
 
 "Owner only" means `0600` files and `0700` folders: SensAI sets `umask 077` at startup
 (`source/main.py`), so every file it creates is private to the user account, on macOS and

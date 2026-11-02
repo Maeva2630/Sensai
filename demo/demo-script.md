@@ -41,7 +41,7 @@ Start: `python3 source/main.py --profile demo/profile_camille.json`
 
 | Time | Who | Action (type exactly) | Expected proof on screen | Spoken line |
 | --- | --- | --- | --- | --- |
-| 0:00 | P1 | — | — | "Camille has 26 pupils in 6e B and three hours on Sunday to prepare the fractions week. Her documents and her pupils' marks must stay on her laptop. SensAI is her assistant, running entirely locally." |
+| 0:00 | P1 | - | - | "Camille has 26 pupils in 6e B and three hours on Sunday to prepare the fractions week. Her documents and her pupils' marks must stay on her laptop. SensAI is her assistant, running entirely locally." |
 | 0:15 | P2 | `/persona use mathematics-assistant` | `Active persona changed to: Mathematics assistant` | "I choose the mathematics assistant; my profile already says French, sixth grade, short classroom activities." |
 | 0:25 | P2 | `/ingest --multiple courses/progression_6e_B.md courses/consignes_evaluation.md courses/fractions_equivalentes.md` then `/rag on` | Three `Document indexed` lines, `RAG mode enabled` | "I index my own course: it stays in a local database." |
 | 0:45 | P2 | `Quand a lieu le contrôle commun de fractions et dans quelle salle ?` | `jeudi 17 décembre 2026 à 10h30, salle B12` + `Sources: progression_6e_B.md` | "The answer comes from my document, and SensAI, not the model, names the source." |
@@ -55,8 +55,8 @@ Start: `python3 source/main.py --profile demo/profile_camille.json`
 | 3:15 | P1 | `Transforme ta réponse sur la date et la salle du contrôle commun en un rappel court à écrire au tableau pour les élèves.` | `Rappel : Contrôle commun de fractions le jeudi 17 décembre à 10h30 en salle B12.` (2/2 in rehearsal) | "The conversation was restored: 'the answer about the test' is understood." |
 | 3:35 | P1 | `/tokens` then `/metrics` | Context usage in tokens; dashboard with calls, latency, RAG share, tool calls | "We track the context budget and the system's behaviour, without storing any conversation text in the metrics." |
 | 4:00 | P1 | `/forget` | `Saved copy of this session deleted.` | "The data stays on this laptop, readable by Camille's account only, and she can erase it in one command." |
-| 4:15 | P1 | — | — | "What SensAI does not do: its quiz answer keys can be wrong, about three out of four in our tests, and a hidden instruction can still influence an answer. Camille reviews everything; SensAI makes that review easy and keeps actions under her control." |
-| 4:40 | P1 | — | — | "Measured on 12 questions about Camille's course, 3 runs: correct answers go from 0 % without her documents to 83 % with them, and on 4 questions the course does not cover, 12 answers out of 12 say 'not found' instead of inventing." ([evaluation](../docs/evaluation.md); replay: `python3 scripts/evaluate_rag.py --quick`) |
+| 4:15 | P1 | - | - | "What SensAI does not do: its quiz answer keys can be wrong, about three out of four in our tests, and a hidden instruction can still influence an answer. Camille reviews everything; SensAI makes that review easy and keeps actions under her control." |
+| 4:40 | P1 | - | - | "Measured on 12 questions about Camille's course, 3 runs: correct answers go from 0 % without her documents to 83 % with them, and on 4 questions the course does not cover, 12 answers out of 12 say 'not found' instead of inventing." ([evaluation](../docs/evaluation.md); replay: `python3 scripts/evaluate_rag.py --quick`) |
 
 ## Acceptable variations
 
@@ -73,7 +73,7 @@ Start: `python3 source/main.py --profile demo/profile_camille.json`
 | The date answer is wrong | `/debug prompt` to show the retrieved excerpt | "The right passage was retrieved; this is the 3B model's limit, which is why sources are shown." |
 | The grade tool is not called | Ask again with "utilise l'outil de moyenne" | "The model decides to call tools; our routing only offers the right ones." |
 | Session restore fails | Show recording 2 | "Errors are reported, never a traceback." |
-| Time is short | Skip 1:05 and 3:35 | — |
+| Time is short | Skip 1:05 and 3:35 | - |
 
 ## Jury replay commands (questions after the demo)
 

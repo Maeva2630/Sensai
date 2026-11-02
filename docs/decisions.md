@@ -39,7 +39,7 @@ Each record follows the same structure: **Context**, **Options considered**, **D
 | `llama3.2:latest` | 3.2B, Q4_K_M | 109.0 tok/s | 4,370 ms | 1,528 ms | 2,786 MiB | 3 calls emitted, 0/3 with valid arguments |
 | `qwen2.5:3b` | 3.1B, Q4_K_M | 111.0 tok/s | 2,255 ms | 1,205 ms | 2,444 MiB | 3/3 |
 | `qwen2.5:7b` | 4.7 GB download | 53.7 tok/s | 7,573 ms | 3,199 ms | 4,858 MiB | 3/3 |
-| `qwen2.5:14b` | 9.0 GB download | not run | — | — | larger than the 8,188 MiB of VRAM | — |
+| `qwen2.5:14b` | 9.0 GB download | not run | - | - | larger than the 8,188 MiB of VRAM | - |
 
 **Decision.** `qwen2.5:3b` is the default chat model; `llama3.2:latest` is the automatic fallback when the default is not installed (`cli/fallback.py`). Temperature 0.2 and `num_ctx` 4,096 (`config.json`).
 
@@ -192,7 +192,7 @@ Before hidden comments were stripped, the HTML-comment canary was printed in 8 o
 
 **Trade-off accepted.** Precision against recall: a genuinely relevant but vaguely worded question can fall under 0.6 and get "not found", where the model would have found something in a 0.55 chunk. For a teacher, a visible "not found" is cheaper than a confident answer with a wrong source. The calibration rests on a small sample and one embedding model.
 
-**Evidence and replay.** `python3 scripts/evaluate_rag.py` measures accuracy and abstention with RAG on and off on a fixed teacher question set ([evaluation](evaluation.md)). Nomic's documentation recommends task prefixes (`search_query:` / `search_document:`), which SensAI does not add; adding them would require re-indexing and a new calibration — listed as future work.
+**Evidence and replay.** `python3 scripts/evaluate_rag.py` measures accuracy and abstention with RAG on and off on a fixed teacher question set ([evaluation](evaluation.md)). Nomic's documentation recommends task prefixes (`search_query:` / `search_document:`), which SensAI does not add; adding them would require re-indexing and a new calibration - listed as future work.
 
 ## ADR-04: Memory format
 

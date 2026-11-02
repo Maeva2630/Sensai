@@ -158,7 +158,7 @@ the expected document was among the retrieved excerpts for 36/36 RAG-on answers.
   retrieved every time):
   - A06 (3 answers): the model gives the homework of the neighbouring lesson (exercises 31
     and 33 page 92 instead of 12 and 14 page 87). Two lessons with the same layout confuse it.
-  - A07 (3 answers): "Léo a mangé 3/4 de la tablette" — correct simplified fraction, but the
+  - A07 (3 answers): "Léo a mangé 3/4 de la tablette" - correct simplified fraction, but the
     unsimplified 18/24 asked for in the same question is left out.
 - **No invented answer**: the 12 absent-fact answers all used the instructed sentence
   ("Je ne trouve pas cette information dans les documents indexés."), now in French.

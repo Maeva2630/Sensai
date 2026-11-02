@@ -1757,7 +1757,7 @@
       "mitigation": "Baseline: none before sending. /tokens and the 80% budget warning use Ollama's post-truncation count, so they under-report the request.",
       "samples": [
         {
-          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
           "answer": "",
           "latency_ms": 10.6,
           "first_token_ms": null,
@@ -1790,7 +1790,7 @@
           "tokens_command": "Token usage:\n- Last turn: 0 prompt + 0 completion = 0 tokens\n- Context window: 0 / 4096 tokens (0.0%)\n- Session total: 0 tokens (0 prompt, 0 completion)"
         },
         {
-          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
           "answer": "",
           "latency_ms": 9.1,
           "first_token_ms": null,
@@ -1823,7 +1823,7 @@
           "tokens_command": "Token usage:\n- Last turn: 0 prompt + 0 completion = 0 tokens\n- Context window: 0 / 4096 tokens (0.0%)\n- Session total: 0 tokens (0 prompt, 0 completion)"
         },
         {
-          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
           "answer": "",
           "latency_ms": 7.9,
           "first_token_ms": null,
@@ -1869,7 +1869,7 @@
       "mitigation": "None on the baseline: the system prompt is the first part Ollama drops.",
       "samples": [
         {
-          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
           "answer": "",
           "latency_ms": 10.6,
           "first_token_ms": null,
@@ -1902,7 +1902,7 @@
           "tokens_command": "Token usage:\n- Last turn: 0 prompt + 0 completion = 0 tokens\n- Context window: 0 / 4096 tokens (0.0%)\n- Session total: 0 tokens (0 prompt, 0 completion)"
         },
         {
-          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
           "answer": "",
           "latency_ms": 9.1,
           "first_token_ms": null,
@@ -1935,7 +1935,7 @@
           "tokens_command": "Token usage:\n- Last turn: 0 prompt + 0 completion = 0 tokens\n- Context window: 0 / 4096 tokens (0.0%)\n- Session total: 0 tokens (0 prompt, 0 completion)"
         },
         {
-          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+          "question": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\nOrganisation de la demi-pension. Le service de restauration accueille les élèves de 11h30 à 13h30. Les classes de sixième passent en premier pendant les deux premières semaines, afin\n[... 20560 characters omitted ...]\nr est installé près du réfectoire. Une semaine de sensibilisation au gaspillage alimentaire est prévue au printemps, avec une pesée des déchets du self avant et après la semaine.\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
           "answer": "",
           "latency_ms": 7.9,
           "first_token_ms": null,

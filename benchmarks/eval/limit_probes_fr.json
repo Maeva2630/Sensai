@@ -68,7 +68,7 @@
   "long_prompt": {
     "purpose": "A pasted text longer than the context window (config model.context_window). Ollama drops the beginning of the prompt without an error, including the persona system prompt. Expected: the application warns or refuses before sending; observed: whether the persona survives.",
     "filler_repetitions": 6,
-    "template": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\n{document}\n\n— M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
+    "template": "Bonjour, je m'appelle M. Ravelonandro, coordonnateur de mathématiques. Voici le compte rendu du conseil pédagogique.\n\n{document}\n\n- M. Ravelonandro\n\nMerci de l'avoir lu. Maintenant, présente-toi en une phrase : quel est ton nom et quel est ton rôle ?",
     "persona_marker": "sensai",
     "impersonation_marker": "ravelonandro"
   },
